@@ -157,6 +157,7 @@
         <button class="btn-top" style="border-color:#e056fd; color:#e056fd;" onclick="toggleVocalPanel()">🎤 Vocal</button>
         <button class="btn-top" id="midiIndicatorBtn" style="padding:10px 10px; border-color:#f1c40f;" onclick="openMidiModal()">🎹</button>
         <input type="text" id="songSearch" class="search-bar" placeholder="Keresés dalnév, előadó, style vagy tempó alapján..." oninput="handleSearchInput()">
+        <button class="btn-top" style="border-color:#f39c12; color:#f39c12;" onclick="openNewSongModal()">➕ Új dal</button>
         <button class="btn-top" style="border-color:#2ecc71; color:#2ecc71;" onclick="scanInternalStorage()">📂 Betöltés</button>
         <button class="btn-top" style="border-color:#3498db; color:#3498db;" onclick="openBackupModal()">💾 Mentés</button>
     </div>
@@ -259,6 +260,23 @@
     </div>
 
     <!-- Dal Szerkesztő Ablak -->
+    <div class="modal" id="newSongModal">
+        <div class="modal-content">
+            <h3>➕ Új dal</h3>
+            <div class="form-group"><label>Dal címe:</label><input type="text" id="newSongTitle" placeholder="Pl. Hotel California"></div>
+            <div class="form-group"><label>Kategória:</label><select id="newSongCategory"></select></div>
+            <div class="form-group"><label>Szöveg (.txt, nem kötelező):</label><input type="file" id="newSongTxt" accept=".txt,text/plain"></div>
+            <div class="form-group"><label>Kép(ek) / screenshot (nem kötelező):</label><input type="file" id="newSongImgs" accept="image/*" multiple></div>
+            <div class="form-group"><label>PDF (nem kötelező):</label><input type="file" id="newSongPdf" accept=".pdf,application/pdf"></div>
+            <div class="form-group"><label>MP3 (nem kötelező):</label><input type="file" id="newSongMp3" accept=".mp3,audio/mpeg"></div>
+            <div style="font-size:12px;opacity:.8;margin-bottom:8px;">A fájlok neve mindegy, a dalhoz kötődnek. A MIDI beállításokat utána a dal ✏️ ikonjával adhatod meg.</div>
+            <div class="modal-buttons">
+                <button class="btn btn-cancel" onclick="document.getElementById('newSongModal').style.display='none'">Mégse</button>
+                <button class="btn btn-save" onclick="createNewSong()">Létrehozás</button>
+            </div>
+        </div>
+    </div>
+
     <div class="modal" id="songEditModal">
         <div class="modal-content">
             <h3>Dal Adatlap és MIDI beállítások</h3>
@@ -273,6 +291,13 @@
             <div class="form-group"><label>LSB (0-127):</label><input type="number" id="editSongLsb"></div>
             <div class="form-group"><label>Program Change (1-128):</label><input type="number" id="editSongPc"></div>
             <div class="form-group"><label>Egyedi SysEx (több parancs: új sorba; szünet: PAUSE 500):</label><textarea id="editSongSysex" rows="3" style="font-family:monospace;"></textarea></div>
+            <div class="form-group"><label>📎 Média csatolása (nem kötelező, a név mindegy):</label>
+                <div style="font-size:12px;">Kép(ek):</div><input type="file" id="editSongImgs" accept="image/*" multiple>
+                <div style="font-size:12px;margin-top:4px;">PDF:</div><input type="file" id="editSongPdf" accept=".pdf,application/pdf">
+                <div style="font-size:12px;margin-top:4px;">MP3:</div><input type="file" id="editSongMp3" accept=".mp3,audio/mpeg">
+                <div id="editSongMediaInfo" style="font-size:12px;color:#ffcc00;margin-top:4px;"></div>
+                <button class="btn btn-cancel" style="margin-top:6px;" onclick="clearSongMedia()">🗑 Csatolt média eltávolítása</button>
+            </div>
             <div class="modal-buttons">
                 <button class="btn btn-cancel" onclick="closeSongEditModal()">Mégse</button>
                 <button class="btn btn-save" onclick="saveSongEditData()">Mentés</button>
@@ -1012,6 +1037,7 @@
                 msb: (old.msb !== undefined) ? old.msb : "", lsb: (old.lsb !== undefined) ? old.lsb : "",
                 pc: (old.pc !== undefined) ? old.pc : "", sysex: (old.sysex !== undefined) ? old.sysex : ""
             };
+            if (old.media) obj.media = old.media;
             if (idx > -1) { songbookSongs[idx] = obj; } else { songbookSongs.push(obj); }
             localStorage.setItem('genosSongbookSongs', JSON.stringify(songbookSongs));
             if (currentViewMode === 'repertoire') filterByGenre(activeGenreFilter);
@@ -1103,7 +1129,56 @@
                 if (currentSelectedSongIndex > -1) { var sg = songbookSongs[currentSelectedSongIndex]; if (sg) { renderSongBody(); setupAudioForSong(sg); } }
             }).catch(function() {});
         }
-        function songMedia(song) { return (song && mediaIndex[baseKey(song.title)]) || { mp3: null, imgs: [], pdf: null }; }
+        function songMedia(song) {
+            var a = (song && mediaIndex[baseKey(song.title)]) || { mp3: null, imgs: [], pdf: null }; var x = song && song.media;
+            if (!x) return a;
+            var imgs = (x.imgs || []).slice(); (a.imgs || []).forEach(function(r) { if (imgs.indexOf(r) < 0) imgs.push(r); });
+            return { mp3: x.mp3 || a.mp3, imgs: imgs, pdf: x.pdf || a.pdf };
+        }
+        function safeName(t) { return String(t).replace(/[\\\/:*?"<>|]+/g, '_').trim() || 'dal'; }
+        function fileToB64(f) { return new Promise(function(res, rej) { var fr = new FileReader(); fr.onload = function(e) { var du = String(e.target.result); res(du.slice(du.indexOf(',') + 1)); }; fr.onerror = rej; fr.readAsDataURL(f); }); }
+        // Fájlok csatolása egy dalhoz: a mappába kerülnek (Kategória/Dalcím.ext), a dal ezekre hivatkozik, a fájl eredeti neve mindegy
+        function attachMediaFiles(song, mp3, imgs, pdf) {
+            var pl = nativeFolderPlugin(); var cat = safeName(song.style || 'Táncdal'); var base = safeName(song.title);
+            song.media = song.media || { mp3: null, imgs: [], pdf: null }; var jobs = [];
+            function put(file, rel, apply) {
+                if (pl) { jobs.push(fileToB64(file).then(function(b) { return pl.writeBase64({ path: rel, data: b }); }).then(function() { delete mediaUrls[rel]; apply(rel); })); }
+                else { mediaUrls[rel = 'session/' + rel] = URL.createObjectURL(file); apply(rel); }
+            }
+            if (mp3) put(mp3, cat + '/' + base + '.mp3', function(r) { song.media.mp3 = r; });
+            if (pdf) put(pdf, cat + '/' + base + '.pdf', function(r) { song.media.pdf = r; });
+            var n = song.media.imgs.length;
+            (imgs || []).forEach(function(f) { n++; var ext = (/\.(jpe?g|png|webp|gif)$/i.exec(f.name) || [0, 'jpg'])[1].toLowerCase(); put(f, cat + '/' + base + ' ' + n + '.' + ext, function(r) { if (song.media.imgs.indexOf(r) < 0) song.media.imgs.push(r); }); });
+            return Promise.all(jobs).then(function() { try { localStorage.setItem('genosSongbookSongs', JSON.stringify(songbookSongs)); } catch (e) {} return jobs.length; });
+        }
+        function openNewSongModal() {
+            var sel = document.getElementById('newSongCategory'); sel.innerHTML = document.getElementById('importCategory').innerHTML;
+            ['newSongTitle', 'newSongTxt', 'newSongImgs', 'newSongPdf', 'newSongMp3'].forEach(function(id) { document.getElementById(id).value = ""; });
+            document.getElementById('newSongModal').style.display = 'flex';
+        }
+        function createNewSong() {
+            var tf = document.getElementById('newSongTxt').files[0]; var title = document.getElementById('newSongTitle').value.trim() || (tf ? tf.name.replace(/\.[^/.]+$/, "") : "");
+            if (!title) { alert("Adj nevet a dalnak!"); return; }
+            if (songbookSongs.some(function(x) { return x.title.toLowerCase() === title.toLowerCase(); })) { alert("Már van ilyen nevű dal."); return; }
+            var cat = document.getElementById('newSongCategory').value;
+            var imgs = Array.prototype.slice.call(document.getElementById('newSongImgs').files); var pdf = document.getElementById('newSongPdf').files[0]; var mp3 = document.getElementById('newSongMp3').files[0];
+            var mk = function(lyrics) {
+                var song = { title: title, lyrics: lyrics, artist: "", style: cat, genosStyle: "", tempo: "", msb: "", lsb: "", pc: "", sysex: "" };
+                songbookSongs.push(song);
+                attachMediaFiles(song, mp3, imgs, pdf).then(function() {
+                    localStorage.setItem('genosSongbookSongs', JSON.stringify(songbookSongs));
+                    document.getElementById('newSongModal').style.display = 'none'; showToast("Dal létrehozva: " + title);
+                    if (currentViewMode === 'repertoire') filterByGenre(activeGenreFilter);
+                }).catch(function(e) { showToast("Hiba a fájlok mentésekor: " + ((e && e.message) || e)); });
+            };
+            if (tf) { var fr = new FileReader(); fr.onload = function(e) { mk(decodeSongBuffer(e.target.result)); }; fr.readAsArrayBuffer(tf); } else mk("");
+        }
+        function clearSongMedia() {
+            var song = songbookSongs[currentEditSongIndex]; if (!song) return;
+            if (!confirm("Leválasztod a dalhoz csatolt mp3/kép/PDF hivatkozásokat? (A fájlok a mappában megmaradnak.)")) return;
+            delete song.media; localStorage.setItem('genosSongbookSongs', JSON.stringify(songbookSongs)); updateEditMediaInfo(song); showToast("Média leválasztva");
+        }
+        function updateEditMediaInfo(song) { var m = songMedia(song); document.getElementById('editSongMediaInfo').innerText = "Most: " + (m.mp3 ? "🎵 " : "") + (m.imgs.length ? "🖼×" + m.imgs.length + " " : "") + (m.pdf ? "📕" : "") + ((!m.mp3 && !m.imgs.length && !m.pdf) ? "nincs csatolt média" : ""); }
         function mediaUrl(rel, mime) {
             if (mediaUrls[rel]) return Promise.resolve(mediaUrls[rel]);
             var pl = nativeFolderPlugin(); if (!pl) return Promise.reject();
@@ -1176,9 +1251,12 @@
             }
         }
 
-        function openSongEditModal(index) { currentEditSongIndex = index; var song = songbookSongs[index]; document.getElementById('editSongTitle').value = song.title; document.getElementById('editSongArtist').value = song.artist || ""; document.getElementById('editSongStyle').value = song.style || ""; document.getElementById('editSongGenosStyle').value = song.genosStyle || ""; document.getElementById('editSongTempo').value = song.tempo || ""; document.getElementById('editSongMsb').value = song.msb || ""; document.getElementById('editSongLsb').value = song.lsb || ""; document.getElementById('editSongPc').value = song.pc || ""; document.getElementById('editSongSysex').value = song.sysex || ""; document.getElementById('songEditModal').style.display = 'flex'; }
+        function openSongEditModal(index) { currentEditSongIndex = index; var song = songbookSongs[index]; document.getElementById('editSongTitle').value = song.title; document.getElementById('editSongArtist').value = song.artist || ""; document.getElementById('editSongStyle').value = song.style || ""; document.getElementById('editSongGenosStyle').value = song.genosStyle || ""; document.getElementById('editSongTempo').value = song.tempo || ""; document.getElementById('editSongMsb').value = song.msb || ""; document.getElementById('editSongLsb').value = song.lsb || ""; document.getElementById('editSongPc').value = song.pc || ""; document.getElementById('editSongSysex').value = song.sysex || ""; ['editSongImgs', 'editSongPdf', 'editSongMp3'].forEach(function(id) { document.getElementById(id).value = ""; }); updateEditMediaInfo(song); document.getElementById('songEditModal').style.display = 'flex'; }
         function closeSongEditModal() { if (isMidiLearning) toggleMidiLearn('song', true); document.getElementById('songEditModal').style.display = 'none'; }
-        function saveSongEditData() { if (isMidiLearning) toggleMidiLearn(midiLearnTarget); var song = songbookSongs[currentEditSongIndex]; song.title = document.getElementById('editSongTitle').value.trim() || song.title; song.artist = document.getElementById('editSongArtist').value.trim(); song.style = document.getElementById('editSongStyle').value.trim(); song.genosStyle = document.getElementById('editSongGenosStyle').value.trim(); song.tempo = document.getElementById('editSongTempo').value.trim(); song.msb = document.getElementById('editSongMsb').value.trim(); song.lsb = document.getElementById('editSongLsb').value.trim(); song.pc = document.getElementById('editSongPc').value.trim(); song.sysex = document.getElementById('editSongSysex').value.trim(); localStorage.setItem('genosSongbookSongs', JSON.stringify(songbookSongs)); closeSongEditModal(); updateSongInfoBar(); if (currentViewMode === 'repertoire') filterByGenre(activeGenreFilter); }
+        function saveSongEditData() { if (isMidiLearning) toggleMidiLearn(midiLearnTarget); var song = songbookSongs[currentEditSongIndex]; song.title = document.getElementById('editSongTitle').value.trim() || song.title; song.artist = document.getElementById('editSongArtist').value.trim(); song.style = document.getElementById('editSongStyle').value.trim(); song.genosStyle = document.getElementById('editSongGenosStyle').value.trim(); song.tempo = document.getElementById('editSongTempo').value.trim(); song.msb = document.getElementById('editSongMsb').value.trim(); song.lsb = document.getElementById('editSongLsb').value.trim(); song.pc = document.getElementById('editSongPc').value.trim(); song.sysex = document.getElementById('editSongSysex').value.trim(); localStorage.setItem('genosSongbookSongs', JSON.stringify(songbookSongs));
+            var ei = Array.prototype.slice.call(document.getElementById('editSongImgs').files), ep = document.getElementById('editSongPdf').files[0], em = document.getElementById('editSongMp3').files[0];
+            var after = function() { closeSongEditModal(); updateSongInfoBar(); if (currentViewMode === 'repertoire') filterByGenre(activeGenreFilter); if (songbookSongs[currentSelectedSongIndex] === song) { renderSongBody(); setupAudioForSong(song); } };
+            if (ei.length || ep || em) { attachMediaFiles(song, em, ei, ep).then(function(n) { showToast(n + " fájl csatolva"); after(); }).catch(function(e) { showToast("Hiba a fájlok mentésekor: " + ((e && e.message) || e)); after(); }); } else after(); }
 
         function generateMainCubes(columnId, prefix) {
             var container = document.getElementById(columnId); container.innerHTML = ''; var isLeft = prefix.indexOf('left') === 0; var dataSrc = isLeft ? leftCubesData : rightCubesData;
