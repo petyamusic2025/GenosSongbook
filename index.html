@@ -502,7 +502,8 @@
             midiOutput = chosen; updateMidiIndicator();
         }
 
-        var learnCaptures = []; var sysexBuf = null;
+        var learnCaptures = []; var sysexBuf = null; var learnSkipped = 0;
+        function regKind(b) { if (!(b[1] === 0x43 && b[2] === 0x73 && b[3] === 0x01 && b[4] === 0x52)) return ''; if (b[5] === 0x26) return 'bank'; if (b[5] === 0x25) return 'button'; return 'other'; }
 
         function feedSysex(data) {
             if (data[0] === 0xF0) sysexBuf = [];
@@ -516,8 +517,12 @@
         }
         function addLearnCapture(bytes) {
             var hex = hexFull(bytes); var dup = learnCaptures.some(function(c) { return c.hex === hex; });
-            var isReg = (bytes[1] === 0x43 && bytes[2] === 0x73 && bytes[3] === 0x01 && bytes[4] === 0x52);
-            learnCaptures.push({ bytes: bytes, hex: hex, selected: (!dup && isReg), dup: dup, reg: isReg });
+            // Hangszín/XG paraméter és általános azonosító üzenetek (F0 43 10 4C … / F0 43 7E …) nem kellenek: eldobjuk
+            if (bytes[1] === 0x43 && (bytes[2] === 0x10 || bytes[2] === 0x7E)) { learnSkipped++; renderLearnList(); return; }
+            var kind = regKind(bytes); var isReg = (kind === 'bank' || kind === 'button');
+            // csak a legutolsó "bank" és a legutolsó "gomb" legyen alapból kijelölve
+            if (isReg) learnCaptures.forEach(function(c) { if (c.kind === kind) c.selected = false; });
+            learnCaptures.push({ bytes: bytes, hex: hex, selected: isReg, dup: dup, reg: isReg, kind: kind });
             renderLearnList();
         }
         function renderLearnList() {
@@ -535,6 +540,7 @@
                     var sp = document.createElement('span'); sp.innerText = (i + 1) + ". SysEx · " + c.bytes.length + " bájt" + (c.dup ? " (ismétlés)" : "") + "\n" + (describeSysex(c.bytes) ? describeSysex(c.bytes) + "\n" : "") + hexDisplay(c.bytes, 14);
                     row.appendChild(cb); row.appendChild(sp); return row;
                 }
+                if (learnSkipped > 0) { var sk = document.createElement('div'); sk.className = 'learn-hint'; sk.innerText = "Kihagyva: " + learnSkipped + " hangszín/XG üzenet (nem kell)."; box.appendChild(sk); }
                 var others = [];
                 learnCaptures.forEach(function(c, i) { if (c.reg) box.appendChild(mkRow(c, i)); else others.push({ c: c, i: i }); });
                 if (others.length > 0) {
@@ -547,6 +553,8 @@
         }
         function applyLearnCaptures(target) {
             var chosen = learnCaptures.filter(function(c) { return c.selected; }); if (chosen.length === 0) return;
+            var order = { bank: 0, button: 1 };
+            chosen = chosen.map(function(c, i) { return { c: c, i: i, o: (order[c.kind] !== undefined) ? order[c.kind] : 2 }; }).sort(function(a, b) { return (a.o - b.o) || (a.i - b.i); }).map(function(x) { return x.c; });
             var field = document.getElementById(target === 'cube' ? 'editCubeSysex' : 'editSongSysex');
             field.value = chosen.map(function(c) { return c.hex; }).join("\nPAUSE 500\n");
             showToast(chosen.length + " SysEx átvéve a SysEx mezőbe.");
@@ -622,7 +630,7 @@
             isMidiLearning = !isMidiLearning; midiLearnTarget = target;
             var btn = document.getElementById(target === 'cube' ? 'cubeLearnBtn' : 'songLearnBtn');
             if (isMidiLearning) {
-                lastCapturedMsb = null; lastCapturedLsb = null; msbByCh = {}; lsbByCh = {}; learnCaptures = []; sysexBuf = null;
+                lastCapturedMsb = null; lastCapturedLsb = null; msbByCh = {}; lsbByCh = {}; learnCaptures = []; learnSkipped = 0; sysexBuf = null;
                 btn.innerText = "💥 VÁRAKOZÁS A GENOS JELÉRE… (koppints ide, ha kész)"; btn.classList.add('learning');
             } else {
                 btn.innerText = "🔵 MIDI Tanulás (Auto-Capture)"; btn.classList.remove('learning');
