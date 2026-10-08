@@ -416,8 +416,9 @@
         }
         function logMidi(dir, bytes) {
             var ds = (bytes[0] === 0xF0) ? describeSysex(bytes) : "";
-            midiLog.push(dir + " " + (ds ? ds + " · " : "") + hexDisplay(bytes, ds ? 8 : 24) + (bytes.length > (ds ? 8 : 24) ? " (" + bytes.length + " bájt)" : "")); midiLogFull.push(dir + " " + hexFull(bytes) + (ds ? "   ; " + ds : ""));
-            if (midiLog.length > 60) { midiLog.shift(); midiLogFull.shift(); } renderMidiModal();
+            var ts = "[" + (performance.now() / 1000).toFixed(2) + "s] ";
+            midiLog.push(ts + dir + " " + (ds ? ds + " · " : "") + hexDisplay(bytes, ds ? 8 : 24) + (bytes.length > (ds ? 8 : 24) ? " (" + bytes.length + " bájt)" : "")); midiLogFull.push(ts + dir + " " + hexFull(bytes) + (ds ? "   ; " + ds : ""));
+            if (midiLog.length > 400) { midiLog.shift(); midiLogFull.shift(); } renderMidiModal();
         }
 
         function midiStateInfo() {
@@ -662,7 +663,7 @@
             if (bytes[0] === 0xF0) { for (var k = 1; k < bytes.length - 1; k++) { if (bytes[k] > 0x7F) return null; } }
             return bytes;
         }
-        function logMidiText(txt) { midiLog.push(txt); midiLogFull.push(txt); if (midiLog.length > 60) { midiLog.shift(); midiLogFull.shift(); } renderMidiModal(); }
+        function logMidiText(txt) { midiLog.push(txt); midiLogFull.push(txt); if (midiLog.length > 400) { midiLog.shift(); midiLogFull.shift(); } renderMidiModal(); }
         function sendSysexString(str) {
             var lines = String(str).split(/[\r\n]+/); var steps = [];
             for (var i = 0; i < lines.length; i++) {
