@@ -42,6 +42,20 @@ public class SongFolderPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void ensureFolders(PluginCall call) {
+        JSObject r = new JSObject();
+        boolean ok = granted();
+        if (ok) {
+            File root = root();
+            root.mkdirs();
+            for (String d : new String[]{"Táncdal", "Csárdás", "Rock", "Szerb"}) new File(root, d).mkdirs();
+        }
+        r.put("granted", ok);
+        r.put("path", root().getAbsolutePath());
+        call.resolve(r);
+    }
+
+    @PluginMethod
     public void requestAccess(PluginCall call) {
         try {
             if (Build.VERSION.SDK_INT >= 30) {

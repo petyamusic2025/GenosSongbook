@@ -758,6 +758,15 @@
             document.getElementById('nativeFolderBox').style.display = nativeFolderPlugin() ? 'block' : 'none';
         }
         function nativeFolderPlugin() { try { return (window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform() && Capacitor.Plugins && Capacitor.Plugins.SongFolder) ? Capacitor.Plugins.SongFolder : null; } catch (e) { return null; } }
+        function initNativeFolder(askPermission) {
+            var pl = nativeFolderPlugin(); if (!pl) return;
+            pl.ensureFolders().then(function(st) {
+                if (st.granted) { if (askPermission === 'resume') showToast("Mappa kész: Documents/GenosSongbook"); return; }
+                if (askPermission === true && confirm("A dalok mappájához (Documents/GenosSongbook) az appnak engedély kell az „Összes fájl elérésére”.\n\nA következő képernyőn kapcsold be az engedélyt, majd lépj vissza az appba.")) { pl.requestAccess(); }
+            }).catch(function() {});
+        }
+        document.addEventListener('visibilitychange', function() { if (!document.hidden) initNativeFolder('resume'); });
+        window.addEventListener('load', function() { setTimeout(function() { initNativeFolder(true); }, 800); });
         function scanSongFolder() {
             var pl = nativeFolderPlugin(); if (!pl) { showToast("Ez csak a telepített appban működik."); return; }
             pl.status().then(function(st) {
