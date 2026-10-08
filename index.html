@@ -1129,7 +1129,7 @@
         }
         function refreshMediaIndex() {
             var pl = nativeFolderPlugin(); if (!pl) return Promise.resolve(); if (!pl.scanMedia) { showToast('Az mp3/kép támogatáshoz frissítsd a SongFolderPlugin.java fájlt is a GitHubon.'); return Promise.resolve(); }
-            return pl.scanMedia().then(function(res) {
+            return pl.status().then(function(st) { if (st && st.path) mediaRootPath = st.path; }).catch(function() {}).then(function() { return pl.scanMedia(); }).then(function(res) {
                 var idx = {}; (res.items || []).forEach(function(it) { addMediaToIndex(it, idx); });
                 Object.keys(idx).forEach(function(k) { idx[k].imgs.sort(); });
                 Object.keys(mediaIndex).forEach(function(k) { if (!idx[k]) { var e = mediaIndex[k]; var hasSess = (e.mp3 && e.mp3.indexOf('session/') === 0) || e.imgs.some(function(r) { return r.indexOf('session/') === 0; }); if (hasSess) idx[k] = e; } });
@@ -1187,8 +1187,13 @@
             delete song.media; localStorage.setItem('genosSongbookSongs', JSON.stringify(songbookSongs)); updateEditMediaInfo(song); showToast("Média leválasztva");
         }
         function updateEditMediaInfo(song) { var m = songMedia(song); document.getElementById('editSongMediaInfo').innerText = "Most: " + (m.mp3 ? "🎵 " : "") + (m.imgs.length ? "🖼×" + m.imgs.length + " " : "") + (m.pdf ? "📕" : "") + ((!m.mp3 && !m.imgs.length && !m.pdf) ? "nincs csatolt média" : ""); }
-        function mediaUrl(rel, mime) {
-            if (mediaUrls[rel]) return Promise.resolve(mediaUrls[rel]);
+        var mediaRootPath = null;
+        function directUrl(rel) {
+            try { var C = window.Capacitor; if (!mediaRootPath || rel.indexOf('session/') === 0 || !C || !C.convertFileSrc) return null; return C.convertFileSrc(encodeURI('file://' + mediaRootPath + '/' + rel)); } catch (e) { return null; }
+        }
+        function mediaUrl(rel, mime, forceBlob) {
+            if (!forceBlob) { if (mediaUrls[rel]) return Promise.resolve(mediaUrls[rel]); var du = directUrl(rel); if (du) return Promise.resolve(du); }
+            if (forceBlob && mediaUrls[rel]) return Promise.resolve(mediaUrls[rel]);
             var pl = nativeFolderPlugin(); if (!pl) return Promise.reject();
             return pl.readBase64({ path: rel }).then(function(x) {
                 if (!x || !x.exists) throw new Error('nincs');
@@ -1196,6 +1201,7 @@
                 var url = URL.createObjectURL(new Blob([u8], { type: mime })); mediaUrls[rel] = url; return url;
             });
         }
+        function imgFallback(el) { if (el.dataset.fb) return; el.dataset.fb = '1'; var rel = el.dataset.rel; mediaUrl(rel, imgMime(rel), true).then(function(u) { el.src = u; }).catch(function() {}); }
         function imgMime(rel) { var l = rel.toLowerCase(); return /\.png$/.test(l) ? 'image/png' : /\.webp$/.test(l) ? 'image/webp' : /\.gif$/.test(l) ? 'image/gif' : 'image/jpeg'; }
         function mediaForView(song) { var m = songMedia(song); return (viewFilters.img && m.imgs.length) ? m : null; }
         // A szöveg helyén: kép (ha van és a PDF/kép pipa be van), különben szöveg (ha a Szöveg pipa be van)
@@ -1210,7 +1216,7 @@
                 var wrap = function() { return document.getElementById('songImgs'); };
                 Promise.all(m.imgs.map(function(r) { return mediaUrl(r, imgMime(r)); })).then(function(urls) {
                     if (currentSelectedSongIndex < 0 || songbookSongs[currentSelectedSongIndex] !== song || !wrap()) return;
-                    wrap().innerHTML = urls.map(function(u) { return '<img class="song-img" src="' + u + '" onclick="this.classList.toggle(\'full\')">'; }).join('');
+                    wrap().innerHTML = urls.map(function(u, i) { return '<img class="song-img" data-rel="' + m.imgs[i].replace(/"/g, '&quot;') + '" src="' + u + '" onclick="this.classList.toggle(\'full\')" onerror="imgFallback(this)">'; }).join('');
                 }).catch(function() { if (wrap()) wrap().innerText = "A kép nem tölthető be."; });
             } else if (hasText) {
                 box.style.whiteSpace = ''; var pre = '';
@@ -1236,7 +1242,12 @@
             var rel = m.mp3;
             mediaUrl(rel, 'audio/mpeg').then(function(url) {
                 var cur = songbookSongs[currentSelectedSongIndex]; if (!cur || songMedia(cur).mp3 !== rel || !viewFilters.mp3) return;
-                var a = new Audio(url); audioEl = a;
+                var a = new Audio(url); audioEl = a; var triedBlob = false;
+                a.addEventListener('error', function() {
+                    if (triedBlob || audioEl !== a) { document.getElementById('audioTime').innerText = "Nem tölthető be (túl nagy fájl?)"; return; }
+                    triedBlob = true; document.getElementById('audioTime').innerText = "Betöltés…";
+                    mediaUrl(rel, 'audio/mpeg', true).then(function(u2) { if (audioEl === a) a.src = u2; }).catch(function() { document.getElementById('audioTime').innerText = "Nem tölthető be"; });
+                });
                 a.addEventListener('timeupdate', function() { document.getElementById('audioSeek').value = a.duration ? Math.round(1000 * a.currentTime / a.duration) : 0; document.getElementById('audioTime').innerText = fmtT(a.currentTime) + " / " + fmtT(a.duration); });
                 a.addEventListener('loadedmetadata', function() { document.getElementById('audioTime').innerText = "0:00 / " + fmtT(a.duration); });
                 a.addEventListener('ended', function() { document.getElementById('audioPlayBtn').innerText = '▶'; });
@@ -1343,7 +1354,41 @@
         function closeTempoEditModal() { document.getElementById('tempoEditModal').style.display = 'none'; }
         function saveTempoEditData() { var s = document.getElementById('editTempoSysex').value.trim(); if (s) tempoData[currentEditTempoValue] = s; else delete tempoData[currentEditTempoValue]; localStorage.setItem('genosTempoSysex', JSON.stringify(tempoData)); closeTempoEditModal(); }
         function closeCubeEditModal() { if (isMidiLearning) toggleMidiLearn('cube', true); document.getElementById('cubeEditModal').style.display = 'none'; }
-        function loadCubeIconFile(e) { var file = e.target.files && e.target.files[0]; if (!file) return; var reader = new FileReader(); reader.onload = function(evt) { tempUploadedIconBase64 = evt.target.result; }; reader.readAsDataURL(file); }
+        // Ikonok kicsinyítése (max 256 px): a nagy felbontású képek lassítják az appot és megtöltik a tárolót
+        function shrinkDataUrl(url, maxSide) {
+            return new Promise(function(res) {
+                try {
+                    var im = new Image();
+                    im.onload = function() {
+                        var w = im.naturalWidth, h = im.naturalHeight; if (!w || !h) { res(url); return; }
+                        var k = Math.min(1, maxSide / Math.max(w, h)); var cw = Math.max(1, Math.round(w * k)), ch = Math.max(1, Math.round(h * k));
+                        var c = document.createElement('canvas'); c.width = cw; c.height = ch; var g = c.getContext('2d'); g.drawImage(im, 0, 0, cw, ch);
+                        var png = /^data:image\/(png|webp|gif|svg)/i.test(url); var out = png ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.85);
+                        res(out.length < url.length ? out : url);
+                    };
+                    im.onerror = function() { res(url); }; im.src = url;
+                } catch (e) { res(url); }
+            });
+        }
+        function loadCubeIconFile(e) { var file = e.target.files && e.target.files[0]; if (!file) return; var reader = new FileReader(); reader.onload = function(evt) { tempUploadedIconBase64 = evt.target.result; shrinkDataUrl(evt.target.result, 256).then(function(u) { tempUploadedIconBase64 = u; }); }; reader.readAsDataURL(file); }
+        // Már mentett, nagy ikonok egyszeri kicsinyítése
+        var shrinkRunning = false;
+        function shrinkStoredIcons() {
+            if (shrinkRunning) return; shrinkRunning = true; var jobs = [], changed = false;
+            [leftCubesData, rightCubesData, topCubesData, vocalCubesData].forEach(function(grp) {
+                Object.keys(grp || {}).forEach(function(id) {
+                    var d = grp[id]; if (!d || !d.icon || d.icon.indexOf('data:image') !== 0 || d.icon.length < 60000) return;
+                    jobs.push(shrinkDataUrl(d.icon, 256).then(function(u) { if (u !== d.icon) { d.icon = u; changed = true; } }));
+                });
+            });
+            Promise.all(jobs).then(function() {
+                shrinkRunning = false; if (!changed) return;
+                try { localStorage.setItem('genosLeftCubes', JSON.stringify(leftCubesData)); localStorage.setItem('genosRightCubes', JSON.stringify(rightCubesData)); localStorage.setItem('genosTopCubes', JSON.stringify(topCubesData)); localStorage.setItem('genosVocalCubes', JSON.stringify(vocalCubesData)); } catch (e) {}
+                try { generateMainCubes('leftMainColumn', 'left'); generateMainCubes('rightMainColumn', 'right'); generateTopCubes(); generateVocalCubes(); } catch (e) {}
+                showToast("Nagy ikonok kicsinyítve – gyorsabb lesz az app.");
+            });
+        }
+        window.addEventListener('load', function() { setTimeout(shrinkStoredIcons, 2500); });
         function clearCubeIcon() { tempUploadedIconBase64 = ""; document.getElementById('editCubeIcon').value = ""; alert("Ikon törölve."); }
 // ==================== EMBERI JELZÉS: ITT VAN A LEZÁRT 9/B. RÉSZ VÉGE ====================
         function saveCubeEditData() { if (isMidiLearning) toggleMidiLearn(midiLearnTarget); var name = document.getElementById('editCubeName').value.trim(); var msb = document.getElementById('editCubeMsb').value.trim(); var lsb = document.getElementById('editCubeLsb').value.trim(); var pc = document.getElementById('editCubePc').value.trim(); var sysex = document.getElementById('editCubeSysex').value.trim(); var isLeft = (currentEditCubeType === 'leftMain' || currentEditCubeType === 'leftSub'); var isRight = (currentEditCubeType === 'rightMain' || currentEditCubeType === 'rightSub'); var dataSrc = (currentEditCubeType === 'vocal') ? vocalCubesData : (isLeft ? leftCubesData : (isRight ? rightCubesData : topCubesData)); dataSrc[currentEditCubeId] = { name: name, msb: msb !== "" ? parseInt(msb) : "", lsb: lsb !== "" ? parseInt(lsb) : "", pc: pc !== "" ? parseInt(pc) : "", sysex: sysex, icon: tempUploadedIconBase64 }; if (isLeft) { localStorage.setItem('genosLeftCubes', JSON.stringify(leftCubesData)); generateMainCubes('leftMainColumn', 'left'); if (activeLeftMain !== -1) generateSubCubes('leftSubColumn', 'left', activeLeftMain); } else if (isRight) { localStorage.setItem('genosRightCubes', JSON.stringify(rightCubesData)); generateMainCubes('rightMainColumn', 'right'); if (activeRightMain !== -1) generateSubCubes('rightSubColumn', 'right', activeRightMain); } else if (currentEditCubeType === 'vocal') { localStorage.setItem('genosVocalCubes', JSON.stringify(vocalCubesData)); generateVocalCubes(); } else { localStorage.setItem('genosTopCubes', JSON.stringify(topCubesData)); generateTopCubes(); } closeCubeEditModal(); }
