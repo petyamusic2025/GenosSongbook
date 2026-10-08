@@ -582,8 +582,10 @@
             });
             return out;
         }
+        var lastBankIn = null;
         function registerIncomingSysex(bytes) {
-            var now = Date.now(); recentIn.push({ hex: normSysexKey(bytes), t: now });
+            var now = Date.now(), key = normSysexKey(bytes); recentIn.push({ hex: key, t: now });
+            if (key.indexOf('F0 43 73 01 52 26') === 0) lastBankIn = { hex: key, t: now };
             recentIn = recentIn.filter(function(r) { return now - r.t < 3000; });
             if (genosMatchTimer) clearTimeout(genosMatchTimer);
             genosMatchTimer = setTimeout(matchIncomingToSong, 350);
@@ -591,19 +593,16 @@
         function matchIncomingToSong() {
             genosMatchTimer = null; var now = Date.now();
             var set = {}; recentIn.forEach(function(r) { if (now - r.t < 3000) set[r.hex] = true; });
+            if (lastBankIn && now - lastBankIn.t < 60000) set[lastBankIn.hex] = true;
             var best = -1, bestScore = 0, nIn = Object.keys(set).length;
             songbookSongs.forEach(function(sg, i) {
                 var steps = songSysexSteps(sg); if (steps.length === 0) return;
-                var banks = steps.filter(function(x) { return x.indexOf('F0 43 73 01 52 26') === 0; });
-                var must = banks.length ? banks : steps;
-                for (var k = 0; k < must.length; k++) { if (!set[must[k]]) return; }
-                var matched = steps.filter(function(x) { return set[x]; }).length;
-                var score = matched * 10 + (matched === steps.length ? 5 : 0);
-                if (score > bestScore) { bestScore = score; best = i; }
+                for (var k = 0; k < steps.length; k++) { if (!set[steps[k]]) return; }
+                if (steps.length > bestScore) { bestScore = steps.length; best = i; }
             });
             recentIn = [];
             if (best > -1) { logMidiText("✔ Genos→szöveg: találat: " + songbookSongs[best].title); showGenosLyricsPopup(best); }
-            else if (nIn > 0) logMidiText("✖ Genos→szöveg: nincs egyező dal (" + nIn + " különböző SysEx érkezett)");
+            else if (nIn > 0) logMidiText("… Genos→szöveg: még nincs teljes egyezés (bank + gomb kell)");
         }
         function showGenosLyricsPopup(idx) {
             var sg = songbookSongs[idx]; if (!sg) return; genosPopupSongIdx = idx;
