@@ -758,10 +758,25 @@
             document.getElementById('nativeFolderBox').style.display = nativeFolderPlugin() ? 'block' : 'none';
         }
         function nativeFolderPlugin() { try { return (window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform() && Capacitor.Plugins && Capacitor.Plugins.SongFolder) ? Capacitor.Plugins.SongFolder : null; } catch (e) { return null; } }
+        // Automatischer Import beim Start / Zurückkehren: neue .txt aus Documents/GenosSongbook (Unterordner = Kategorie)
+        function autoImportFolder(pl) {
+            pl.scan().then(function(res) {
+                var added = 0;
+                (res.items || []).forEach(function(it) {
+                    try {
+                        var title = it.name.replace(/\.[^/.]+$/, ""); var cat = it.category || "Táncdal";
+                        if (songbookSongs.some(function(x) { return x.title.toLowerCase() === title.toLowerCase(); })) return;
+                        var bin = atob(it.data); var u8 = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+                        saveLocalScannedSong(title, decodeSongBuffer(u8.buffer), cat, ""); added++;
+                    } catch (e) {}
+                });
+                if (added > 0) { showToast(added + " új dal betöltve a mappából"); try { if (currentViewMode === 'repertoire') filterByGenre(activeGenreFilter); } catch (e) {} }
+            }).catch(function() {});
+        }
         function initNativeFolder(askPermission) {
             var pl = nativeFolderPlugin(); if (!pl) return;
             pl.ensureFolders().then(function(st) {
-                if (st.granted) { if (askPermission === 'resume') showToast("Mappa kész: Documents/GenosSongbook"); return; }
+                if (st.granted) { autoImportFolder(pl); return; }
                 if (askPermission === true && confirm("A dalok mappájához (Documents/GenosSongbook) az appnak engedély kell az „Összes fájl elérésére”.\n\nA következő képernyőn kapcsold be az engedélyt, majd lépj vissza az appba.")) { pl.requestAccess(); }
             }).catch(function() {});
         }
