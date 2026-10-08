@@ -87,6 +87,7 @@
     /* Sárga alapú Repertoár listaelemek */
     .song-list-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; background-color: #ffffff; border: 2px solid #121216; border-radius: 8px; margin-bottom: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
     .song-list-item:hover { background-color: #f5f5f5; }
+    .song-list-item.kb-sel { outline: 3px solid #ffcc00; outline-offset: -3px; }
     .song-item-info-block { display: flex; flex-direction: column; gap: 2px; }
     .song-item-title { font-size: 1.1rem; font-weight: bold; color: #121216; }
     .song-item-subdetails { font-size: 0.82rem; color: #616161; font-weight: bold; }
@@ -925,6 +926,28 @@
             if (currentViewMode === 'repertoire') filterByGenre(activeGenreFilter);
         }
 // ==================== EMBERI JELZÉS: ITT VAN A LEZÁRT 7/B. RÉSZ VÉGE ====================
+        // ===== Billentyűzetes keresés (Bluetooth/USB billentyűzet) =====
+        var kbSel = -1;
+        function kbItems() { return Array.prototype.slice.call(document.querySelectorAll('#songsListSubContainer .song-list-item')); }
+        function kbHighlight() { var it = kbItems(); it.forEach(function(e, i) { e.classList.toggle('kb-sel', i === kbSel); }); if (it[kbSel] && it[kbSel].scrollIntoView) it[kbSel].scrollIntoView({ block: 'nearest' }); }
+        function anyModalOpen() { var m = document.querySelectorAll('.modal'); for (var i = 0; i < m.length; i++) { if (m[i].style.display === 'flex') return true; } return false; }
+        function focusSearch() { var sb = document.getElementById('songSearch'); sb.focus(); sb.select(); }
+        document.getElementById('songSearch').addEventListener('input', function() { kbSel = -1; });
+        document.addEventListener('keydown', function(e) {
+            var sb = document.getElementById('songSearch'); var a = document.activeElement;
+            if (e.key === 'F3') { e.preventDefault(); if (!anyModalOpen()) focusSearch(); return; }
+            if (a === sb) {
+                if (e.key === 'Escape') { sb.value = ''; sb.blur(); kbSel = -1; handleSearchInput(); return; }
+                var it = kbItems();
+                if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { if (it.length) { e.preventDefault(); kbSel = (e.key === 'ArrowDown') ? Math.min(it.length - 1, kbSel + 1) : Math.max(0, kbSel - 1); kbHighlight(); } return; }
+                if (e.key === 'Enter') { var idx = (kbSel >= 0) ? kbSel : 0; if (it[idx]) { e.preventDefault(); kbSel = -1; sb.blur(); it[idx].click(); } return; }
+                return;
+            }
+            var inField = a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable);
+            if (inField || anyModalOpen() || e.ctrlKey || e.altKey || e.metaKey) return;
+            if (e.key && e.key.length === 1) { focusSearch(); }
+        });
+
         function renderRepertoireList(songsArray) {
             var container = document.getElementById('songsListSubContainer'); container.innerHTML = ''; 
             if (songsArray.length === 0) { container.innerHTML = '<p style="color:#121216; font-style:italic; text-align:center; padding:20px; font-weight:bold;">Nincsenek dalok ebben a kategóriában.</p>'; return; }
@@ -994,8 +1017,14 @@
         }
         function generateVocalCubes() {
             var container = document.getElementById('vocalGrid'); if (!container) return; container.innerHTML = '';
+            var chordNames = ["C", "D", "E", "F", "G", "A", "B", "H"];
             for (var i = 1; i <= 32; i++) {
                 var cubeId = "vocal-" + i; var cubeData = vocalCubesData[cubeId] || { name: "V" + i };
+                if (!cubeData.name && !cubeData.icon) cubeData = { name: "" };
+                if (!vocalCubesData[cubeId] || (!cubeData.name && !cubeData.icon)) {
+                    var col = Math.floor((i - 1) / 8); var note = chordNames[(i - 1) % 8];
+                    cubeData = { name: note + ((col >= 2) ? "m" : "") + ((col % 2 === 0) ? "⬇️" : "⬆️") };
+                }
                 var div = document.createElement('div'); div.className = 'midi-cube'; div.id = "cube-" + cubeId;
                 div.setAttribute('onclick', "vocalCubeClick(" + i + ")"); setupMobileLongPress(div, "vocal", cubeId);
                 if (cubeData.icon) { div.innerHTML = '<img src="' + cubeData.icon + '" class="cube-icon">'; } else { div.innerHTML = '<span class="cube-text">' + (cubeData.name || ("V" + i)) + '</span>'; }
