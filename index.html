@@ -391,12 +391,24 @@
         function hexFull(b) { var s = []; for (var i = 0; i < b.length; i++) { s.push(('0' + b[i].toString(16)).slice(-2).toUpperCase()); } return s.join(' '); }
         function hexDisplay(b, max) { var s = []; for (var i = 0; i < b.length && i < max; i++) { s.push(('0' + b[i].toString(16)).slice(-2).toUpperCase()); } if (b.length > max) s.push('…'); return s.join(' '); }
         // Yamaha Genos SysEx lesbar machen (wie MobileSheets): Registration-Pfad (.rgt) und Button-Nachricht
+        // A Genos az ékezetes betűket UTF-7 szerűen küldi (pl. "BE+AME-LL+AM0-T+AME-S" = BEÁLLÍTÁS) -> visszafejtjük a kijelzéshez
+        function utf7decode(t) {
+            try {
+                return t.replace(/\+([A-Za-z0-9\/+]*)-?/g, function(m, b) {
+                    if (b === '') return '+';
+                    while (b.length % 4) b += '=';
+                    var bin = atob(b); var out = '';
+                    for (var i = 0; i + 1 < bin.length; i += 2) out += String.fromCharCode((bin.charCodeAt(i) << 8) | bin.charCodeAt(i + 1));
+                    return out;
+                });
+            } catch (e) { return t; }
+        }
         function describeSysex(b) {
             if (!b || b[0] !== 0xF0 || b[1] !== 0x43 || b[2] !== 0x73 || b[3] !== 0x01 || b[4] !== 0x52) return "";
             var end = b.length - 1; if (b[end] !== 0xF7) end = b.length;
             if (b[5] === 0x26) {
                 var t = ""; for (var i = 10; i < end; i++) { if (b[i] >= 32 && b[i] < 127) t += String.fromCharCode(b[i]); else if (b[i] === 0) break; else t += "?"; }
-                if (t) return "Registration bank: " + t;
+                if (t) return "Registration bank: " + utf7decode(t);
             }
             if (b[5] === 0x25) return "Registration gomb (adat: " + hexDisplay(b.slice(6, end), 12) + ")";
             return "";
