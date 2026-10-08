@@ -569,16 +569,21 @@
 
         // ---- Rückrichtung: Genos sendet Registration-SysEx -> passendes Lied im Popup
         var recentIn = []; var genosMatchTimer = null; var genosPopupSongIdx = -1;
+        function normSysexKey(b) {
+            if (b.length === 12 && b[4] === 0x52 && b[5] === 0x25 && b[6] === 0x11 && b[7] === 0 && b[8] === 2 && b[9] === 0 && b[10] < 10) return 'BTN' + b[10];
+            if (b.length === 13 && b[4] === 0x52 && b[5] === 0x25 && b[6] === 0 && b[7] === 1 && b[8] === 1 && b[9] === 0 && b[10] === 1 && b[11] < 10) return 'BTN' + b[11];
+            return hexFull(b);
+        }
         function songSysexSteps(song) {
             var out = []; if (!song || !song.sysex) return out;
             String(song.sysex).split(/\n/).forEach(function(line) {
                 if (/^\s*PAUSE/i.test(line) || !line.trim()) return;
-                var b = parseSysexString(line); if (b && b[0] === 0xF0) out.push(hexFull(b));
+                var b = parseSysexString(line); if (b && b[0] === 0xF0) out.push(normSysexKey(b));
             });
             return out;
         }
         function registerIncomingSysex(bytes) {
-            var now = Date.now(); recentIn.push({ hex: hexFull(bytes), t: now });
+            var now = Date.now(); recentIn.push({ hex: normSysexKey(bytes), t: now });
             recentIn = recentIn.filter(function(r) { return now - r.t < 3000; });
             if (genosMatchTimer) clearTimeout(genosMatchTimer);
             genosMatchTimer = setTimeout(matchIncomingToSong, 350);
