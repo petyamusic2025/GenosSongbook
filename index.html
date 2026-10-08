@@ -591,14 +591,19 @@
         function matchIncomingToSong() {
             genosMatchTimer = null; var now = Date.now();
             var set = {}; recentIn.forEach(function(r) { if (now - r.t < 3000) set[r.hex] = true; });
-            var best = -1, bestScore = 0;
+            var best = -1, bestScore = 0, nIn = Object.keys(set).length;
             songbookSongs.forEach(function(sg, i) {
                 var steps = songSysexSteps(sg); if (steps.length === 0) return;
-                for (var k = 0; k < steps.length; k++) { if (!set[steps[k]]) return; }
-                if (steps.length > bestScore) { bestScore = steps.length; best = i; }
+                var banks = steps.filter(function(x) { return x.indexOf('F0 43 73 01 52 26') === 0; });
+                var must = banks.length ? banks : steps;
+                for (var k = 0; k < must.length; k++) { if (!set[must[k]]) return; }
+                var matched = steps.filter(function(x) { return set[x]; }).length;
+                var score = matched * 10 + (matched === steps.length ? 5 : 0);
+                if (score > bestScore) { bestScore = score; best = i; }
             });
             recentIn = [];
-            if (best > -1) showGenosLyricsPopup(best);
+            if (best > -1) { logMidiText("✔ Genos→szöveg: találat: " + songbookSongs[best].title); showGenosLyricsPopup(best); }
+            else if (nIn > 0) logMidiText("✖ Genos→szöveg: nincs egyező dal (" + nIn + " különböző SysEx érkezett)");
         }
         function showGenosLyricsPopup(idx) {
             var sg = songbookSongs[idx]; if (!sg) return; genosPopupSongIdx = idx;
