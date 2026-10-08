@@ -93,8 +93,9 @@
     .song-item-subdetails { font-size: 0.82rem; color: #616161; font-weight: bold; }
     .song-item-actions { display: flex; gap: 10px; }
     .btn-action { background: none; border: none; font-size: 1.2rem; cursor: pointer; padding: 4px; }
-    .transpose-panel { display: flex; align-items: center; gap: 10px; background-color: #1a1a22; padding: 5px 15px; border-radius: 6px; border: 1px solid #3e3e4f; color: #fff; margin-bottom: 10px; font-weight: bold; }
+    .transpose-panel { flex-wrap: wrap; display: flex; align-items: center; gap: 10px; background-color: #1a1a22; padding: 5px 15px; border-radius: 6px; border: 1px solid #3e3e4f; color: #fff; margin-bottom: 10px; font-weight: bold; }
 
+    @media (max-width: 900px) { .transpose-label { display: none; } }
     .view-pills { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
     .view-pill { display: flex; align-items: center; gap: 3px; background: #1a1a22; border: 1px solid #3e3e4f; border-radius: 6px; padding: 6px 7px; color: #888; font-size: 0.8rem; font-weight: bold; cursor: pointer; user-select: none; }
     .view-pill input { width: 16px; height: 16px; margin: 0; }
@@ -155,12 +156,6 @@
         <button id="viewRepertoireBtn" class="btn-top" onclick="switchView('repertoire')">🎵 Repertoár</button>
         <button class="btn-top" style="border-color:#e056fd; color:#e056fd;" onclick="toggleVocalPanel()">🎤 Vocal</button>
         <button class="btn-top" id="midiIndicatorBtn" style="padding:10px 10px; border-color:#f1c40f;" onclick="openMidiModal()">🎹</button>
-        <div class="view-pills" id="viewPills">
-            <label class="view-pill" id="pill-text"><input type="checkbox" onchange="setViewFilter('text', this.checked)">Szöveg</label>
-            <label class="view-pill" id="pill-reg"><input type="checkbox" onchange="setViewFilter('reg', this.checked)">Regiszter</label>
-            <label class="view-pill" id="pill-img"><input type="checkbox" onchange="setViewFilter('img', this.checked)">PDF/kép</label>
-            <label class="view-pill" id="pill-mp3"><input type="checkbox" onchange="setViewFilter('mp3', this.checked)">MP3</label>
-        </div>
         <input type="text" id="songSearch" class="search-bar" placeholder="Keresés dalnév, előadó, style vagy tempó alapján..." oninput="handleSearchInput()">
         <button class="btn-top" style="border-color:#2ecc71; color:#2ecc71;" onclick="scanInternalStorage()">📂 Betöltés</button>
         <button class="btn-top" style="border-color:#3498db; color:#3498db;" onclick="openBackupModal()">💾 Mentés</button>
@@ -189,11 +184,19 @@
             </div>
 
             <!-- Manuális Transzponáló panel (+ / - gombokkal és kijelzővel) -->
-            <div class="transpose-panel" id="transposeControlBox" style="display: none;">
-                <span>TRANSZPONÁLÁS:</span>
+            <div class="transpose-panel" id="transposeControlBox" style="display: flex;">
+              <span id="transposeGroup" style="display:flex;align-items:center;gap:10px;">
+                <span class="transpose-label">TRANSZPONÁLÁS:</span>
                 <button class="btn-top" style="padding:5px 12px; border-color:#ff4d4d; color:#ff4d4d;" onclick="changeTranspose(-1)">➖</button>
                 <span id="transposeDisplayVal" style="color:#ffcc00; font-size:1.2rem; min-width:30px; text-align:center;">0</span>
                 <button class="btn-top" style="padding:5px 12px; border-color:#2ecc71; color:#2ecc71;" onclick="changeTranspose(1)">➕</button>
+              </span>
+        <div class="view-pills" id="viewPills" style="margin-left:16px;">
+            <label class="view-pill" id="pill-text"><input type="checkbox" onchange="setViewFilter('text', this.checked)">Szöveg</label>
+            <label class="view-pill" id="pill-reg"><input type="checkbox" onchange="setViewFilter('reg', this.checked)">Regiszter</label>
+            <label class="view-pill" id="pill-img"><input type="checkbox" onchange="setViewFilter('img', this.checked)">PDF/kép</label>
+            <label class="view-pill" id="pill-mp3"><input type="checkbox" onchange="setViewFilter('mp3', this.checked)">MP3</label>
+        </div>
             </div>
 
             <div class="song-info-bar" id="songInfoBar"></div>
@@ -330,7 +333,7 @@
     <!-- Dalok betöltése ablak -->
     <div class="modal" id="importModal">
         <div class="modal-content">
-            <h3>📂 Dalok betöltése (.txt)</h3>
+            <h3>📂 Betöltés (.txt, .mp3, kép, PDF)</h3>
             <div class="form-group"><label>Kategória:</label>
                 <select id="importCategory">
                     <option value="Táncdal">Táncdal</option>
@@ -349,7 +352,7 @@
                 <div style="font-size:12px;opacity:.8;margin-top:4px;">Az almappa neve lesz a kategória (pl. Táncdal, Csárdás). A mappában közvetlenül lévő fájlok a fent kiválasztott kategóriába kerülnek.</div>
             </div>
             <div class="form-group"><label>Fájlok (többet is kijelölhetsz):</label>
-                <input type="file" id="importFileInput" accept=".txt,text/plain" multiple>
+                <input type="file" id="importFileInput" accept=".txt,text/plain,.mp3,audio/mpeg,image/*,.pdf,application/pdf" multiple>
             </div>
             <div class="modal-buttons">
                 <button class="btn btn-cancel" onclick="closeImportModal()">Mégse</button>
@@ -788,10 +791,10 @@
             document.getElementById('viewLyricsBtn').classList.remove('active-view'); document.getElementById('viewRepertoireBtn').classList.remove('active-view');
             if (mode === 'lyrics') {
                 document.getElementById('viewLyricsBtn').classList.add('active-view');
-                lyrDisplay.style.display = "block"; repContainer.style.display = "none"; transPanel.style.display = "flex"; topCubes.style.display = "flex";
+                lyrDisplay.style.display = "block"; repContainer.style.display = "none"; transPanel.style.display = "flex"; document.getElementById("transposeGroup").style.display = "flex"; topCubes.style.display = "flex";
             } else {
                 document.getElementById('viewRepertoireBtn').classList.add('active-view');
-                lyrDisplay.style.display = "none"; repContainer.style.display = "block"; transPanel.style.display = "none"; topCubes.style.display = "none";
+                lyrDisplay.style.display = "none"; repContainer.style.display = "block"; transPanel.style.display = "flex"; document.getElementById("transposeGroup").style.display = "none"; topCubes.style.display = "none";
                 filterByGenre(activeGenreFilter);
             }
         }
@@ -939,13 +942,33 @@
             return text;
         }
 
+        function importMediaFiles(files, category) {
+            var pl = nativeFolderPlugin(); var done = 0, saved = 0;
+            files.forEach(function(f) {
+                var low = f.name.toLowerCase();
+                if (!/\.(mp3|jpe?g|png|webp|gif|pdf)$/.test(low)) { done++; return; }
+                var fr = new FileReader();
+                fr.onload = function(e) {
+                    var du = String(e.target.result); var b64 = du.slice(du.indexOf(',') + 1); var rel = category + '/' + f.name;
+                    var fin = function() { saved++; if (++done === files.length) { showToast(saved + " médiafájl betöltve"); refreshMediaIndex(); } };
+                    if (pl) { pl.writeBase64({ path: rel, data: b64 }).then(fin).catch(function() { if (++done === files.length) { showToast("Mentési hiba a médiafájloknál"); refreshMediaIndex(); } }); }
+                    else { try { mediaUrls['session/' + f.name] = URL.createObjectURL(f); addMediaToIndex({ name: f.name, rel: 'session/' + f.name }); } catch (x) {} fin(); }
+                };
+                fr.onerror = function() { done++; };
+                fr.readAsDataURL(f);
+            });
+        }
         function startImport() {
             var files = document.getElementById('importFileInput').files;
             if (!files || files.length === 0) { alert("Válassz ki legalább egy .txt fájlt!"); return; }
             var category = document.getElementById('importCategory').value; var genosStyle = document.getElementById('importGenosStyle').value.trim();
             closeImportModal();
 
-            var list = Array.prototype.slice.call(files);
+            var allFiles = Array.prototype.slice.call(files);
+            var list = allFiles.filter(function(f) { return /\.txt$/i.test(f.name) || f.type === 'text/plain'; });
+            var mediaList = allFiles.filter(function(f) { return list.indexOf(f) < 0; });
+            if (mediaList.length) importMediaFiles(mediaList, category);
+            if (list.length === 0) return;
             var progressPanel = document.getElementById('syncProgressPanel');
             var progressBarFill = document.getElementById('syncProgressBarFill');
             var progressTextMain = document.getElementById('progressTextMain');
@@ -1025,6 +1048,7 @@
                 var infoDiv = document.createElement('div'); infoDiv.className = 'song-item-info-block';
                 var titleSpan = document.createElement('span'); titleSpan.className = 'song-item-title'; titleSpan.innerText = song.title; infoDiv.appendChild(titleSpan);
                 var subParts = []; if (song.artist) subParts.push(song.artist); if (song.style) subParts.push(song.style); if (song.genosStyle) subParts.push("Style: " + song.genosStyle); if (song.tempo) subParts.push(song.tempo + " BPM");
+                var mm = songMedia(song); var badges = (mm.mp3 ? '🎵' : '') + (mm.imgs.length ? '🖼' : '') + (mm.pdf ? '📕' : ''); if (badges) { var bSpan = document.createElement('span'); bSpan.className = 'song-item-subdetails'; bSpan.innerText = badges; titleSpan.innerText = song.title + '  ' + badges; }
                 if (subParts.length > 0) { var subSpan = document.createElement('span'); subSpan.className = 'song-item-subdetails'; subSpan.innerText = subParts.join(" | "); infoDiv.appendChild(subSpan); }
                 var actDiv = document.createElement('div'); actDiv.className = 'song-item-actions';
                 var editBtn = document.createElement('button'); editBtn.className = 'btn-action'; editBtn.innerText = '📝'; editBtn.onclick = function(e) { e.stopPropagation(); openSongEditModal(origIdx); };
@@ -1058,23 +1082,24 @@
         // ===== Média (mp3 / kép) a dal neve szerint a Documents/GenosSongbook mappából =====
         var mediaIndex = {}; var mediaUrls = {}; var songShowMode = 'auto';
         function baseKey(n) { return String(n).replace(/\.[^/.]+$/, "").toLowerCase().trim(); }
+        function addMediaToIndex(it, idx) {
+            var target = idx || mediaIndex; var low = it.name.toLowerCase(); var full = baseKey(it.name);
+            function ent(k) { return target[k] = target[k] || { mp3: null, imgs: [], pdf: null }; }
+            if (/\.mp3$/.test(low)) ent(full).mp3 = it.rel;
+            else if (/\.pdf$/.test(low)) ent(full).pdf = it.rel;
+            else {
+                ent(full).imgs.push(it.rel);
+                var stripped = full.replace(/[ _-]*\(?\d+\)?$/, "");
+                if (stripped && stripped !== full) ent(stripped).imgs.push(it.rel);
+            }
+        }
         function refreshMediaIndex() {
-            var pl = nativeFolderPlugin(); if (!pl || !pl.scanMedia) return Promise.resolve();
+            var pl = nativeFolderPlugin(); if (!pl) return Promise.resolve(); if (!pl.scanMedia) { showToast('Az mp3/kép támogatáshoz frissítsd a SongFolderPlugin.java fájlt is a GitHubon.'); return Promise.resolve(); }
             return pl.scanMedia().then(function(res) {
-                var idx = {};
-                (res.items || []).forEach(function(it) {
-                    var low = it.name.toLowerCase(); var full = baseKey(it.name);
-                    function ent(k) { return idx[k] = idx[k] || { mp3: null, imgs: [], pdf: null }; }
-                    if (/\.mp3$/.test(low)) ent(full).mp3 = it.rel;
-                    else if (/\.pdf$/.test(low)) ent(full).pdf = it.rel;
-                    else {
-                        ent(full).imgs.push(it.rel);
-                        var stripped = full.replace(/[ _-]*\(?\d+\)?$/, "");
-                        if (stripped && stripped !== full) ent(stripped).imgs.push(it.rel);
-                    }
-                });
+                var idx = {}; (res.items || []).forEach(function(it) { addMediaToIndex(it, idx); });
                 Object.keys(idx).forEach(function(k) { idx[k].imgs.sort(); });
-                mediaIndex = idx;
+                Object.keys(mediaIndex).forEach(function(k) { if (!idx[k]) { var e = mediaIndex[k]; var hasSess = (e.mp3 && e.mp3.indexOf('session/') === 0) || e.imgs.some(function(r) { return r.indexOf('session/') === 0; }); if (hasSess) idx[k] = e; } });
+                mediaIndex = idx; try { if (currentViewMode === 'repertoire') refreshRepertoire(); } catch (e) {}
                 if (currentSelectedSongIndex > -1) { var sg = songbookSongs[currentSelectedSongIndex]; if (sg) { renderSongBody(); setupAudioForSong(sg); } }
             }).catch(function() {});
         }
