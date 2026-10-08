@@ -2,6 +2,9 @@
   "name": "genos-songbook",
   "version": "1.0.0",
   "private": true,
+  "scripts": {
+    "capacitor:sync:after": "sh icon.sh"
+  },
   "dependencies": {
     "@capacitor/android": "6.1.2",
     "@capacitor/core": "6.1.2"
