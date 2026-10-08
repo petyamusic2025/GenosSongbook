@@ -1,0 +1,49 @@
+name: Build APK
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Web-Dateien vorbereiten
+        run: |
+          mkdir -p www
+          cp index.html www/index.html
+      - run: npm install
+      - run: npx cap add android
+      - name: Native Dateien und Berechtigungen
+        run: |
+          PKG=android/app/src/main/java/hu/petya/genossongbook
+          mkdir -p $PKG
+          cp MainActivity.java SongFolderPlugin.java $PKG/
+          python3 - <<'PY'
+          p='android/app/src/main/AndroidManifest.xml'
+          s=open(p,encoding='utf-8').read()
+          perms='''
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+              <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+              <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+              <uses-feature android:name="android.software.midi" android:required="false" />
+          '''
+          s=s.replace('<application', perms+'<application',1)
+          s=s.replace('<application','<application android:requestLegacyExternalStorage="true"',1)
+          open(p,'w',encoding='utf-8').write(s)
+          PY
+      - run: npx cap sync android
+      - name: APK bauen
+        working-directory: android
+        run: chmod +x gradlew && ./gradlew assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GenosSongbook-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
