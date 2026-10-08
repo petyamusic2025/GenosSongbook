@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Genos MIDI Songbook & Controller</title>
+    <style>
+        * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #121216; color: #e0e0e0; margin: 0; padding: 0;
+            height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+        }
+        .top-bar {
+            height: 60px; background-color: #1a1a22; border-bottom: 2px solid #2a2a35;
+            display: flex; align-items: center; padding: 0 15px; gap: 10px; z-index: 10;
+        }
+        .search-bar {
+            flex: 1; padding: 10px 15px; background-color: #0c0c0f;
+            border: 1px solid #3e3e4f; color: #fff; border-radius: 6px; font-size: 1rem;
+        }
+        .btn-top {
+            padding: 10px 15px; background-color: #262632; color: #fff;
+            border: 1px solid #3e3e4f; border-radius: 6px; font-weight: bold; font-size: 0.95rem;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .btn-top.active-view { background-color: #ffcc00; color: #121216; border-color: #ffcc00; }
+        .main-content { flex: 1; display: flex; overflow: hidden; position: relative; }
+    </style>
+</head>
+<body>
+<!-- ==================== EMBERI JELZÉS: ITT VAN A LEZÁRT 1. RÉSZ VÉGE ==================== -->
+<style>
+    .side-panel { display: flex; height: 100%; background-color: #16161c; z-index: 5; }
+    .panel-left { border-right: 2px solid #2a2a35; }
+    .panel-right { border-left: 2px solid #2a2a35; }
+    
+    .cube-column { 
+        width: 95px; min-width: 95px; max-width: 95px; 
+        height: 100%; display: flex; flex-direction: column; 
+        padding: 5px; gap: 5px; background-color: #1a1a22; 
+        background-image: none !important; overflow-y: auto; 
+    }
+    .sub-column { 
+        width: 0; overflow: hidden; background-color: #13131a; 
+        transition: width 0.25s ease; display: flex; flex-direction: column; 
+        padding: 5px 0; gap: 5px; background-image: none !important; 
+    }
+    .sub-column.open { width: 95px; min-width: 95px; max-width: 95px; padding: 5px; border-left: 1px solid #2a2a35; border-right: 1px solid #2a2a35; }
+    
+    .midi-cube {
+        width: 100%; flex: 1; min-height: 45px; max-height: 55px; background-color: #262632; border: 1px solid #3e3e4f;
+        border-radius: 6px; display: flex; justify-content: center; align-items: center; padding: 0;
+        cursor: pointer; text-align: center; overflow: hidden; position: relative; background-image: none !important;
+    }
+    .midi-cube:active { filter: brightness(1.4); }
+    .midi-cube.active-bank { border-color: #ffcc00; box-shadow: inset 0 0 8px rgba(255, 204, 0, 0.3); }
+    .panel-left .midi-cube.active-sub { background-color: #244732; border-color: #2ecc71; }
+    .panel-right .midi-cube.active-sub { background-color: #472424; border-color: #e74c3c; }
+    
+    .cube-text { font-size: 0.72rem; font-weight: bold; color: #ffffff; word-break: break-word; line-height: 1.1; padding: 4px; pointer-events: none; z-index: 2; }
+    .cube-icon { width: 100% !important; height: 100% !important; max-width: 100% !important; max-height: 100% !important; object-fit: cover !important; pointer-events: none; display: block; position: absolute; top: 0; left: 0; z-index: 1; }
+</style>
+<!-- ==================== EMBERI JELZÉS: ITT VAN A LEZÁRT 2. RÉSZ VÉGE ==================== -->
+<style>
+    /* SÁRGA SZÍNŰ KÖZÉPSŐ TEXT ZÓNA */
+    .center-zone { flex: 1; height: 100%; background-color: #ffeb3b; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; }
+    .lyrics-display { font-size: 1.35rem; line-height: 1.6; color: #121216; white-space: pre-wrap; font-family: monospace; font-weight: bold; }
+
+    /* Atombiztos piros akkord kiemelés a sárga felületen */
+    .chord-highlight { color: #d32f2f !important; font-weight: 900; background-color: rgba(0, 0, 0, 0.08); padding: 2px 6px; border-radius: 4px; display: inline-block; margin: 0 2px; }
+    .top-cubes-zone { width: 100%; height: 48px; display: flex; gap: 4px; padding: 2px 0; margin-bottom: 8px; border-bottom: 1px solid rgba(0,0,0,0.1); }
+    .genre-filter-bar { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 10px; border-bottom: 2px solid #121216; width: 100%; }
+    .btn-genre { flex: 1; min-width: 75px; padding: 8px 5px; font-size: 0.8rem; font-weight: bold; background-color: #121216; color: #fff; border: 1px solid #121216; border-radius: 4px; cursor: pointer; text-align: center; transition: all 0.15s; }
+    .btn-genre.active-genre { background-color: #ffffff; color: #121216; }
+
+    /* Fájlbeolvasást mutató élő százalékos és állapotjelző panel stílusa */
+    .progress-panel {
+        display: none; width: 100%; background-color: #1a1a22; border: 2px solid #ffcc00;
+        border-radius: 8px; padding: 12px; margin-bottom: 12px; color: #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    }
+    .progress-text-main { font-weight: bold; font-size: 1rem; color: #ffcc00; margin-bottom: 4px; text-align: center; }
+    .progress-text-sub { font-size: 0.85rem; color: #e0e0e0; margin-bottom: 8px; text-align: center; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .progress-bar-bg { width: 100%; height: 14px; background-color: #0c0c0f; border-radius: 6px; overflow: hidden; border: 1px solid #3e3e4f; }
+    .progress-bar-fill { width: 0%; height: 100%; background-color: #ffcc00; transition: width 0.1s ease; }
+
+    /* Sárga alapú Repertoár listaelemek */
+    .song-list-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; background-color: #ffffff; border: 2px solid #121216; border-radius: 8px; margin-bottom: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .song-list-item:hover { background-color: #f5f5f5; }
+    .song-item-info-block { display: flex; flex-direction: column; gap: 2px; }
+    .song-item-title { font-size: 1.1rem; font-weight: bold; color: #121216; }
+    .song-item-subdetails { font-size: 0.82rem; color: #616161; font-weight: bold; }
+    .song-item-actions { display: flex; gap: 10px; }
+    .btn-action { background: none; border: none; font-size: 1.2rem; cursor: pointer; padding: 4px; }
+    .transpose-panel { display: flex; align-items: center; gap: 10px; background-color: #1a1a22; padding: 5px 15px; border-radius: 6px; border: 1px solid #3e3e4f; color: #fff; margin-bottom: 10px; font-weight: bold; }
+
+    .song-info-bar { display: none; background-color: #121216; color: #ffcc00; padding: 6px 12px; border-radius: 6px; margin-bottom: 10px; font-weight: bold; font-size: 1rem; }
+
+    .vocal-panel { display: none; position: fixed; z-index: 1500; flex-direction: column; background-color: #1e1e24; border: 2px solid #e056fd; border-radius: 8px; padding: 4px; box-shadow: 0 6px 18px rgba(0,0,0,0.55); }
+    .vocal-header { display: flex; justify-content: space-between; align-items: center; height: 22px; margin-bottom: 3px; color: #e056fd; font-weight: bold; font-size: 0.8rem; padding-left: 4px; }
+    .vocal-close { background-color: #ff6b6b; color: #fff; border: none; border-radius: 4px; font-weight: bold; font-size: 0.75rem; padding: 0 10px; height: 22px; cursor: pointer; }
+    .vocal-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(8, 1fr); grid-auto-flow: column; gap: 3px; }
+    .vocal-grid .midi-cube { height: 100%; min-height: 0; max-height: none; }
+    .vocal-grid .cube-text { font-size: 0.7rem; padding: 1px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+    .search-bar { min-width: 0; }
+    @media (max-width: 820px) { .top-bar { gap: 6px; padding: 0 8px; } .btn-top { padding: 10px 9px; font-size: 0.85rem; } }
+    textarea { user-select: text; -webkit-user-select: text; }
+    .learn-list { display: none; margin: -4px 0 10px; border: 1px solid #00ffcc; border-radius: 6px; padding: 6px; background-color: #0c0c0f; }
+    .learn-hint { font-size: 0.75rem; color: #aaa; margin-bottom: 4px; }
+    .learn-item { display: flex; align-items: center; gap: 8px; padding: 4px 2px; border-bottom: 1px solid #2a2a35; font-size: 0.78rem; color: #e0e0e0; }
+    .learn-item:last-child { border-bottom: none; }
+    .learn-item input { width: auto; flex: 0 0 auto; }
+    .learn-item span { flex: 1; font-family: monospace; white-space: pre-wrap; word-break: break-all; }
+    .toast { display: none; position: fixed; left: 50%; bottom: 78px; transform: translateX(-50%); background-color: rgba(0,0,0,0.9); color: #fff; padding: 8px 14px; border-radius: 8px; z-index: 3000; font-size: 0.9rem; max-width: 90%; text-align: center; border: 1px solid #e74c3c; }
+    .midi-status { padding: 8px 10px; border-radius: 6px; font-weight: bold; margin-bottom: 6px; font-size: 0.9rem; }
+    .midi-status.ok { background-color: #1d3b2a; color: #2ecc71; }
+    .midi-status.warn { background-color: #3b2f14; color: #f1c40f; }
+    .midi-status.err { background-color: #3b1a1a; color: #ff6b6b; }
+    .midi-counts { color: #aaa; font-size: 0.8rem; margin-bottom: 10px; }
+
+    /* Alsó és modális ablak stílusok */
+    .bottom-bar { height: 65px; background-color: #1a1a22; border-top: 2px solid #2a2a35; display: flex; align-items: center; padding: 5px 10px; gap: 6px; overflow-x: auto; z-index: 10; }
+    .tempo-cube { flex: 0 0 55px; height: 100%; background-color: #262632; border: 1px solid #3e3e4f; border-radius: 6px; display: flex; justify-content: center; align-items: center; cursor: pointer; font-weight: bold; color: #00ffcc; font-size: 0.95rem; }
+    .tempo-cube:active { background-color: #00ffcc; color: #121216; }
+    .tempo-cube.active-tempo { border-color: #ffcc00; color: #ffcc00; box-shadow: inset 0 0 8px rgba(255, 204, 0, 0.35); }
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.8); justify-content: center; align-items: center; z-index: 2000; }
+    .modal-content { background-color: #1e1e24; padding: 20px; border-radius: 10px; width: 90%; max-width: 450px; max-height: 90vh; overflow-y: auto; }
+    .modal-content h3 { margin-top: 0; color: #ffcc00; margin-bottom: 15px; }
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; margin-bottom: 4px; color: #aaa; font-size: 0.9rem; }
+    .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 8px; box-sizing: border-box; background-color: #0c0c0f; border: 1px solid #4e4e64; color: #fff; border-radius: 4px; font-size: 0.95rem; }
+    .modal-buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px; }
+    .btn { padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    .btn-save { background-color: #00ffcc; color: #1e1e24; }
+    .btn-cancel { background-color: #ff6b6b; color: #fff; }
+    .btn-learn { background-color: #2a2a35; color: #00ffcc; border: 1px solid #00ffcc; width: 100%; padding: 8px; font-weight: bold; margin-bottom: 10px; border-radius: 4px; cursor: pointer; }
+    .btn-learn.learning { background-color: #00ffcc; color: #121216; animation: pulse 1.2s infinite; }
+    @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
+</style>
+<!-- ==================== EMBERI JELZÉS: ITT VAN A LEZÁRT 3. RÉSZ VÉGE ==================== -->
+    <!-- Felső fő vezérlősáv -->
+    <div class="top-bar">
+        <button id="viewLyricsBtn" class="btn-top active-view" onclick="switchView('lyrics')">📄 Szöveg</button>
+        <button id="viewRepertoireBtn" class="btn-top" onclick="switchView('repertoire')">🎵 Repertoár</button>
+        <button class="btn-top" style="border-color:#e056fd; color:#e056fd;" onclick="toggleVocalPanel()">🎤 Vocal</button>
+        <button class="btn-top" id="midiIndicatorBtn" style="padding:10px 10px; border-color:#f1c40f;" onclick="openMidiModal()">🎹</button>
+        <input type="text" id="songSearch" class="search-bar" placeholder="Keresés dalnév, előadó, style vagy tempó alapján..." oninput="handleSearchInput()">
+        <button class="btn-top" style="border-color:#2ecc71; color:#2ecc71;" onclick="scanInternalStorage()">📂 Betöltés</button>
+        <button class="btn-top" style="border-color:#3498db; color:#3498db;" onclick="openBackupModal()">💾 Mentés</button>
+    </div>
+
+    <!-- Középső fő tartalom a vezérlőkkel -->
+    <div class="main-content">
+        <!-- BAL PANEL: Hangszínek -->
+        <div class="side-panel panel-left">
+            <div class="cube-column" id="leftMainColumn"></div>
+            <div class="sub-column" id="leftSubColumn"></div>
+        </div>
+
+        <!-- KÖZÉPSŐ SÁRGA ZÓNA -->
+        <div class="center-zone" id="centerZone">
+            <!-- 8 darab kiegészítő kisméretű MIDI kocka tárolója közvetlenül a szöveg felett -->
+            <div class="top-cubes-zone" id="topTransposeCubesContainer"></div>
+
+            <!-- Élő százalékos és állapotjelző panel doboza -->
+            <div class="progress-panel" id="syncProgressPanel">
+                <div class="progress-text-main" id="progressTextMain">Dalok szinkronizálása: 0%</div>
+                <div class="progress-text-sub" id="progressTextSub">Várakozás...</div>
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" id="syncProgressBarFill"></div>
+                </div>
+            </div>
+
+            <!-- Manuális Transzponáló panel (+ / - gombokkal és kijelzővel) -->
+            <div class="transpose-panel" id="transposeControlBox" style="display: none;">
+                <span>TRANSZPONÁLÁS:</span>
+                <button class="btn-top" style="padding:5px 12px; border-color:#ff4d4d; color:#ff4d4d;" onclick="changeTranspose(-1)">➖</button>
+                <span id="transposeDisplayVal" style="color:#ffcc00; font-size:1.2rem; min-width:30px; text-align:center;">0</span>
+                <button class="btn-top" style="padding:5px 12px; border-color:#2ecc71; color:#2ecc71;" onclick="changeTranspose(1)">➕</button>
+            </div>
+
+            <div class="song-info-bar" id="songInfoBar"></div>
+
+            <!-- DALSZÖVEG MEGJELENÍTŐ -->
+            <div class="lyrics-display" id="lyricsDisplay">Válassz egy dalt a Repertoárból vagy vezéreld a Genost az oldalsó gombokkal!</div>
+            
+            <!-- REPERTOÁR NÉZET ÉS AZ INTELIGENS MŰFAJSZŰRŐK -->
+            <div id="repertoireListContainer" style="display: none;">
+                <div class="genre-filter-bar" id="genreFilterBar">
+                    <button class="btn-genre active-genre" id="genre-all" onclick="filterByGenre('all')">Mind</button>
+                    <button class="btn-genre" id="genre-tancdal" onclick="filterByGenre('táncdal')">Táncdal</button>
+                    <button class="btn-genre" id="genre-csardas" onclick="filterByGenre('csárdás')">Csárdás</button>
+                    <button class="btn-genre" id="genre-rock" onclick="filterByGenre('rock')">Rock</button>
+                    <button class="btn-genre" id="genre-szerb" onclick="filterByGenre('szerb')">Szerb</button>
+                </div>
+                <!-- Dalok sárga listája -->
+                <div id="songsListSubContainer"></div>
+            </div>
+        </div>
+
+        <!-- JOBB PANEL: Stílusok -->
+        <div class="side-panel panel-right">
+            <div class="sub-column" id="rightSubColumn"></div>
+            <div class="cube-column" id="rightMainColumn"></div>
+        </div>
+    </div>
+
+    <!-- ALSÓ RÉSZ: Fix tempó gombok -->
+    <div class="bottom-bar" id="tempoBar"></div>
+<!-- ==================== EMBERI JELZÉS: ITT VAN A LEZÁRT 4. RÉSZ VÉGE ==================== -->
+    <!-- MIDI Kocka Szerkesztő Ablak -->
+    <div class="modal" id="cubeEditModal">
+        <div class="modal-content">
+            <h3 id="cubeEditTitle">MIDI Kocka Beállításai</h3>
+            <button id="cubeLearnBtn" class="btn-learn" onclick="toggleMidiLearn('cube')">🔵 MIDI Tanulás (Auto-Capture)</button>
+            <div id="learnList_cube" class="learn-list"></div>
+            <div class="form-group"><label>Gomb neve (Ha nincs kép):</label><input type="text" id="editCubeName"></div>
+            <div class="form-group">
+                <label>Ikon betöltése (Teljesen fedi a gombot):</label>
+                <input type="file" id="editCubeIcon" accept="image/*" onchange="loadCubeIconFile(event)">
+                <button type="button" class="btn" style="background-color:#e74c3c; color:white; padding:4px 8px; margin-top:5px; font-size:0.75rem;" onclick="clearCubeIcon()">Töröl</button>
+            </div>
+            <div class="form-group"><label>MSB (0-127):</label><input type="number" id="editCubeMsb"></div>
+            <div class="form-group"><label>LSB (0-127):</label><input type="number" id="editCubeLsb"></div>
+            <div class="form-group"><label>Program Change (1-128):</label><input type="number" id="editCubePc"></div>
+            <div class="form-group"><label>Egyedi SysEx (több parancs: új sorba; szünet: PAUSE 500):</label><textarea id="editCubeSysex" rows="3" style="font-family:monospace;"></textarea></div>
+            <div class="modal-buttons">
+                <button class="btn btn-cancel" onclick="closeCubeEditModal()">Mégse</button>
+                <button class="btn btn-save" onclick="saveCubeEditData()">Mentés</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dal Szerkesztő Ablak -->
+    <div class="modal" id="songEditModal">
+        <div class="modal-content">
+            <h3>Dal Adatlap és MIDI beállítások</h3>
+            <button id="songLearnBtn" class="btn-learn" onclick="toggleMidiLearn('song')">🔵 MIDI Tanulás (Auto-Capture)</button>
+            <div id="learnList_song" class="learn-list"></div>
+            <div class="form-group"><label>Dal címe (Átírható):</label><input type="text" id="editSongTitle"></div>
+            <div class="form-group"><label>Előadó / Énekes:</label><input type="text" id="editSongArtist" placeholder="Pl. Azahriah, Komáromi..."></div>
+            <div class="form-group"><label>Kategória (Táncdal, Csárdás, Rock, Szerb):</label><input type="text" id="editSongStyle" placeholder="Pl. Csárdás, Rock..."></div>
+            <div class="form-group"><label>Genos Style (amit ehhez a dalhoz használsz):</label><input type="text" id="editSongGenosStyle" placeholder="Pl. 8Beat Modern, Pop Rock..."></div>
+            <div class="form-group"><label>Tempó (BPM):</label><input type="number" id="editSongTempo" placeholder="Pl. 125"></div>
+            <div class="form-group"><label>MSB (0-127):</label><input type="number" id="editSongMsb"></div>
+            <div class="form-group"><label>LSB (0-127):</label><input type="number" id="editSongLsb"></div>
+            <div class="form-group"><label>Program Change (1-128):</label><input type="number" id="editSongPc"></div>
+            <div class="form-group"><label>Egyedi SysEx (több parancs: új sorba; szünet: PAUSE 500):</label><textarea id="editSongSysex" rows="3" style="font-family:monospace;"></textarea></div>
+            <div class="modal-buttons">
+                <button class="btn btn-cancel" onclick="closeSongEditModal()">Mégse</button>
+                <button class="btn btn-save" onclick="saveSongEditData()">Mentés</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tempó Szerkesztő Ablak -->
+    <div class="modal" id="tempoEditModal">
+        <div class="modal-content">
+            <h3 id="tempoEditTitle">Tempó SysEx Beállítása</h3>
+            <div class="form-group"><label>SysEx kód (több parancs: új sorba; szünet: PAUSE 500):</label><textarea id="editTempoSysex" rows="3" style="font-family:monospace;"></textarea></div>
+            <div class="modal-buttons">
+                <button class="btn btn-cancel" onclick="closeTempoEditModal()">Mégse</button>
+                <button class="btn btn-save" onclick="saveTempoEditData()">Mentés</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Vocal Processor panel (csak a szöveg mező felett) -->
+    <div class="vocal-panel" id="vocalPanel">
+        <div class="vocal-header"><span>🎤 Vocal Processor</span><button class="vocal-close" onclick="closeVocalModal()">✕</button></div>
+        <div class="vocal-grid" id="vocalGrid"></div>
+    </div>
+
+    <!-- MIDI állapot ablak -->
+    <div class="modal" id="genosLyricsModal" onclick="if(event.target===this)closeGenosLyricsPopup()">
+        <div class="modal-content" style="max-width:640px;width:92%;background:#fdf6e3;color:#222;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px;">
+                <h3 id="genosLyricsTitle" style="margin:0;color:#8a5a00;"></h3>
+                <button class="btn-action" onclick="closeGenosLyricsPopup()" style="font-size:22px;">✖</button>
+            </div>
+            <div id="genosLyricsBody" style="white-space:pre-wrap;font-family:monospace;font-weight:bold;font-size:18px;line-height:1.7;"></div>
+        </div>
+    </div>
+    <div class="modal" id="midiModal">
+        <div class="modal-content">
+            <h3>🎹 MIDI állapot</h3>
+            <div id="midiStatusLine" class="midi-status"></div>
+            <div id="midiCounts" class="midi-counts"></div>
+            <div class="form-group"><label>Kimenet (ide küld az app):</label><select id="midiOutSelect" onchange="selectMidiOutput(this.value)"></select></div>
+            <div class="form-group"><label>MIDI csatorna (Bank / Program Change):</label><select id="midiChannelSelect" onchange="setMidiChannel(this.value)"></select></div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+                <button class="btn btn-save" onclick="sendTestNote()">🔔 Teszthang (C4)</button>
+                <button class="btn" style="background-color:#3498db; color:#fff;" onclick="reconnectMidi()">🔄 Újracsatlakozás</button>
+            </div>
+            <div class="form-group"><label>Napló (→ küldött, ← kapott; Clock és Active Sensing rejtve):</label><textarea id="midiLogArea" readonly style="height:100px; font-family:monospace; font-size:0.8rem; color:#00ffcc;"></textarea></div>
+            <div class="modal-buttons">
+                <button class="btn" style="background-color:#444; color:#fff;" onclick="clearMidiLog()">Törlés</button>
+                <button class="btn" style="background-color:#444; color:#fff;" onclick="copyMidiLog()">📋 Másolás</button>
+                <button class="btn btn-cancel" onclick="closeMidiModal()">Bezár</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <!-- Dalok betöltése ablak -->
+    <div class="modal" id="importModal">
+        <div class="modal-content">
+            <h3>📂 Dalok betöltése (.txt)</h3>
+            <div class="form-group"><label>Kategória:</label>
+                <select id="importCategory">
+                    <option value="Táncdal">Táncdal</option>
+                    <option value="Csárdás">Csárdás</option>
+                    <option value="Rock">Rock</option>
+                    <option value="Szerb">Szerb</option>
+                </select>
+            </div>
+            <div class="form-group"><label>Genos Style (opcionális, minden kijelölt dalra érvényes):</label><input type="text" id="importGenosStyle" placeholder="Pl. 8Beat Modern"></div>
+            <div class="form-group" id="nativeFolderBox" style="display:none;">
+                <button class="btn btn-save" style="width:100%;" onclick="scanSongFolder()">📁 Documents/GenosSongbook beolvasása</button>
+                <div style="font-size:12px;opacity:.8;margin-top:4px;">Az almappa neve lesz a kategória (pl. Táncdal, Csárdás). A mappában közvetlenül lévő fájlok a fent kiválasztott kategóriába kerülnek.</div>
+            </div>
+            <div class="form-group"><label>Fájlok (többet is kijelölhetsz):</label>
+                <input type="file" id="importFileInput" accept=".txt,text/plain" multiple>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn btn-cancel" onclick="closeImportModal()">Mégse</button>
+                <button class="btn btn-save" onclick="startImport()">Betöltés</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Biztonsági Mentés Ablak -->
+    <div class="modal" id="backupModal">
+        <div class="modal-content">
+            <h3>💾 Teljes Adatmentés</h3>
+            <div class="form-group"><textarea id="backupTextArea" style="width:100%; height:150px; background-color:#0c0c0f; color:#00ffcc; border:1px solid #4e4e64; padding:10px; resize:none; font-family:monospace; font-size:0.8rem;"></textarea></div>
+            <div class="modal-buttons">
+                <button class="btn btn-save" id="btnCopyText" onclick="copyBackupText()">Másolás</button>
+                <button class="btn btn-save" style="background-color:#3498db; color:white;" onclick="executeCodeImport()">Importálás</button>
+                <button class="btn btn-cancel" onclick="closeBackupModal()">Bezár</button>
+            </div>
+        </div>
+    </div>
+<!-- ==================== EMBERI JELZÉS: ITT VAN A LEZÁRT 5. RÉSZ VÉGE ==================== -->
+    <script>
+        // Lokális memóriatárak inicializálása
+        var songbookSongs = JSON.parse(localStorage.getItem('genosSongbookSongs')) || [];
+        var leftCubesData = JSON.parse(localStorage.getItem('genosLeftCubes')) || {};
+        var rightCubesData = JSON.parse(localStorage.getItem('genosRightCubes')) || {};
+        var tempoData = JSON.parse(localStorage.getItem('genosTempoSysex')) || {};
+        var topCubesData = JSON.parse(localStorage.getItem('genosTopCubes')) || {};
+        var vocalCubesData = JSON.parse(localStorage.getItem('genosVocalCubes')) || {};
+
+        // Rendszerállapotok követése
+        var currentViewMode = "lyrics"; var currentSelectedSongIndex = -1;
+        var activeLeftMain = -1; var activeLeftSub = -1;
+        var activeRightMain = -1; var activeRightSub = -1;
+        var currentEditCubeType = ""; var currentEditCubeId = "";
+        var currentEditTempoValue = null; var currentEditSongIndex = -1;
+        var tempUploadedIconBase64 = ""; var activeGenreFilter = "all";
+        var globalTransposeOffset = 0;
+        
+        // Zenei skála az eltoláshoz
+        var chordScale = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "B", "H"];
+
+        var isMidiLearning = false; var midiLearnTarget = "";
+        var lastCapturedMsb = null; var lastCapturedLsb = null;
+        var midiAccess = null; var midiOutput = null;
+
+        // ===== MIDI: állapot, napló, kimenet-választás =====
+        var midiState = "init"; var midiError = ""; var midiSysex = false;
+        var midiOutputs = []; var midiInputCount = 0; var midiLog = []; var midiLogFull = [];
+        var midiChannel = 0; var toastTimer = null;
+        try { var savedCh = parseInt(localStorage.getItem('genosMidiChannel'), 10); if (savedCh >= 0 && savedCh <= 15) midiChannel = savedCh; } catch (e) {}
+
+        function showToast(msg) {
+            var el = document.getElementById('toast'); if (!el) return;
+            el.innerText = msg; el.style.display = 'block';
+            if (toastTimer) clearTimeout(toastTimer);
+            toastTimer = setTimeout(function() { el.style.display = 'none'; }, 3500);
+        }
+        function midiPortName(p) { return (p && (p.name || p.id)) ? (p.name || p.id) : "MIDI"; }
+        function hexBytes(b) { var s = []; for (var i = 0; i < b.length && i < 12; i++) { s.push(('0' + b[i].toString(16)).slice(-2).toUpperCase()); } if (b.length > 12) s.push('…'); return s.join(' '); }
+        function hexFull(b) { var s = []; for (var i = 0; i < b.length; i++) { s.push(('0' + b[i].toString(16)).slice(-2).toUpperCase()); } return s.join(' '); }
+        function hexDisplay(b, max) { var s = []; for (var i = 0; i < b.length && i < max; i++) { s.push(('0' + b[i].toString(16)).slice(-2).toUpperCase()); } if (b.length > max) s.push('…'); return s.join(' '); }
+        // Yamaha Genos SysEx lesbar machen (wie MobileSheets): Registration-Pfad (.rgt) und Button-Nachricht
+        function describeSysex(b) {
+            if (!b || b[0] !== 0xF0 || b[1] !== 0x43 || b[2] !== 0x73 || b[3] !== 0x01 || b[4] !== 0x52) return "";
+            var end = b.length - 1; if (b[end] !== 0xF7) end = b.length;
+            if (b[5] === 0x26) {
+                var t = ""; for (var i = 10; i < end; i++) { if (b[i] >= 32 && b[i] < 127) t += String.fromCharCode(b[i]); else if (b[i] === 0) break; else t += "?"; }
+                if (t) return "Registration bank: " + t;
+            }
+            if (b[5] === 0x25) return "Registration gomb (adat: " + hexDisplay(b.slice(6, end), 12) + ")";
+            return "";
+        }
+        function logMidi(dir, bytes) {
+            var ds = (bytes[0] === 0xF0) ? describeSysex(bytes) : "";
+            midiLog.push(dir + " " + (ds ? ds + " · " : "") + hexDisplay(bytes, ds ? 8 : 24) + (bytes.length > (ds ? 8 : 24) ? " (" + bytes.length + " bájt)" : "")); midiLogFull.push(dir + " " + hexFull(bytes) + (ds ? "   ; " + ds : ""));
+            if (midiLog.length > 60) { midiLog.shift(); midiLogFull.shift(); } renderMidiModal();
+        }
+
+        function midiStateInfo() {
+            if (midiState === 'noapi') return { level: 'err', text: "Ez az app (WebView) nem támogatja a Web MIDI-t. Nyisd meg az oldalt Chrome-ban." };
+            if (midiState === 'denied') return { level: 'err', text: "A MIDI hozzáférés megtagadva" + (midiError ? " (" + midiError + ")" : "") + "." };
+            if (midiState === 'pending') return { level: 'warn', text: "Várakozás a MIDI engedélyre…" };
+            if (midiState === 'ready') {
+                if (!midiOutput) return { level: 'warn', text: "MIDI kész, de nincs kimenet. Csatlakoztasd a Genost USB-n, majd nyomd meg az Újracsatlakozás gombot." };
+                return { level: midiSysex ? 'ok' : 'warn', text: "Kimenet: " + midiPortName(midiOutput) + (midiSysex ? " · SysEx be" : " · SysEx KI (csak Bank/PC)") };
+            }
+            return { level: 'warn', text: "MIDI indítása…" };
+        }
+        function updateMidiIndicator() {
+            var b = document.getElementById('midiIndicatorBtn');
+            if (b) { var lvl = midiStateInfo().level; b.style.borderColor = (lvl === 'ok') ? '#2ecc71' : ((lvl === 'warn') ? '#f1c40f' : '#e74c3c'); b.setAttribute('data-level', lvl); }
+            renderMidiModal();
+        }
+        function renderMidiModal() {
+            var modal = document.getElementById('midiModal'); if (!modal || modal.style.display !== 'flex') return;
+            var info = midiStateInfo();
+            var st = document.getElementById('midiStatusLine'); st.className = 'midi-status ' + info.level; st.innerText = info.text;
+            document.getElementById('midiCounts').innerText = "Kimenetek: " + midiOutputs.length + " · Bemenetek: " + midiInputCount;
+            var sel = document.getElementById('midiOutSelect'); sel.innerHTML = '';
+            if (midiOutputs.length === 0) { var o0 = document.createElement('option'); o0.value = ''; o0.text = '— nincs kimenet —'; sel.appendChild(o0); }
+            midiOutputs.forEach(function(o, i) { var op = document.createElement('option'); op.value = String(i); op.text = midiPortName(o); if (o === midiOutput) op.selected = true; sel.appendChild(op); });
+            var ch = document.getElementById('midiChannelSelect');
+            if (ch.options.length === 0) { for (var c = 1; c <= 16; c++) { var oc = document.createElement('option'); oc.value = String(c - 1); oc.text = String(c); ch.appendChild(oc); } }
+            ch.value = String(midiChannel);
+            document.getElementById('midiLogArea').value = midiLog.slice().reverse().join("\n");
+        }
+        function openMidiModal() { document.getElementById('midiModal').style.display = 'flex'; renderMidiModal(); }
+        function closeMidiModal() { document.getElementById('midiModal').style.display = 'none'; }
+        function clearMidiLog() { midiLog = []; midiLogFull = []; renderMidiModal(); }
+        function copyMidiLog() {
+            var ta = document.createElement('textarea'); ta.value = midiLogFull.slice().reverse().join("\n");
+            ta.style.position = 'fixed'; ta.style.top = '0'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.focus(); ta.select();
+            try { ta.setSelectionRange(0, ta.value.length); document.execCommand('copy'); showToast('Napló másolva (teljes hosszban)'); } catch (e) { showToast('Másolás sikertelen'); }
+            document.body.removeChild(ta);
+        }
+        function selectMidiOutput(idx) {
+            var o = midiOutputs[parseInt(idx, 10)]; if (!o) return;
+            midiOutput = o; try { localStorage.setItem('genosMidiOutId', o.id || ''); } catch (e) {}
+            updateMidiIndicator();
+        }
+        function setMidiChannel(v) { var n = parseInt(v, 10); if (n >= 0 && n <= 15) { midiChannel = n; try { localStorage.setItem('genosMidiChannel', String(n)); } catch (e) {} } }
+        function sendTestNote() {
+            var ch = midiChannel & 15;
+            if (sendMidiMessage([0x90 | ch, 60, 100])) { setTimeout(function() { sendMidiMessage([0x80 | ch, 60, 0]); }, 500); }
+        }
+        function reconnectMidi() { initMidi(); }
+
+        function initMidi() {
+            midiState = 'pending'; midiError = ""; midiOutput = null; updateMidiIndicator();
+            if (!navigator || typeof navigator.requestMIDIAccess !== 'function') { midiState = 'noapi'; updateMidiIndicator(); return; }
+            function fail(err) { midiState = 'denied'; midiError = (err && (err.name || err.message)) ? (err.name || err.message) : ""; updateMidiIndicator(); }
+            function attempt(sysex, onReject) {
+                try {
+                    navigator.requestMIDIAccess({ sysex: sysex }).then(function(a) { midiSysex = sysex; onMidiSuccess(a); }, onReject);
+                } catch (e) { onReject(e); }
+            }
+            // Erst mit SysEx, wird das abgelehnt, ohne SysEx (Bank/Program Change funktionieren dann trotzdem)
+            attempt(true, function() { attempt(false, fail); });
+        }
+
+        function onMidiSuccess(access) { midiAccess = access; midiState = 'ready'; setupMDevices(); access.onstatechange = setupMDevices; }
+
+        function setupMDevices() {
+            if (!midiAccess) return;
+            var outs = []; var inCount = 0;
+            try {
+                midiAccess.outputs.forEach(function(o) { outs.push(o); });
+                midiAccess.inputs.forEach(function(i) { i.onmidimessage = handleMidiInputMessage; inCount++; });
+            } catch (err) { midiError = String((err && err.message) || err); }
+            midiOutputs = outs; midiInputCount = inCount;
+            var chosen = null; var savedId = ""; try { savedId = localStorage.getItem('genosMidiOutId') || ""; } catch (e) {}
+            if (midiOutput && outs.indexOf(midiOutput) > -1) chosen = midiOutput;
+            if (!chosen && savedId) { for (var a = 0; a < outs.length; a++) { if (outs[a].id === savedId) { chosen = outs[a]; break; } } }
+            if (!chosen) { for (var b = 0; b < outs.length; b++) { if (/genos|yamaha/i.test(outs[b].name || "")) { chosen = outs[b]; break; } } }
+            if (!chosen) { for (var c = 0; c < outs.length; c++) { if (!/through/i.test(outs[c].name || "")) { chosen = outs[c]; break; } } }
+            if (!chosen && outs.length > 0) chosen = outs[0];
+            midiOutput = chosen; updateMidiIndicator();
+        }
+
+        var learnCaptures = []; var sysexBuf = null;
+
+        function feedSysex(data) {
+            if (data[0] === 0xF0) sysexBuf = [];
+            if (!sysexBuf) return null;
+            for (var i = 0; i < data.length; i++) {
+                var b = data[i]; if (b >= 0xF8) continue;
+                sysexBuf.push(b);
+                if (b === 0xF7) { var m = sysexBuf; sysexBuf = null; return m; }
+            }
+            return null;
+        }
+        function addLearnCapture(bytes) {
+            var hex = hexFull(bytes); var dup = learnCaptures.some(function(c) { return c.hex === hex; });
+            learnCaptures.push({ bytes: bytes, hex: hex, selected: !dup, dup: dup });
+            renderLearnList();
+        }
+        function renderLearnList() {
+            var targets = ['cube', 'song'];
+            for (var k = 0; k < targets.length; k++) {
+                var box = document.getElementById('learnList_' + targets[k]); if (!box) continue;
+                if (!(isMidiLearning && midiLearnTarget === targets[k])) { box.style.display = 'none'; box.innerHTML = ''; continue; }
+                box.style.display = 'block'; box.innerHTML = '';
+                var hint = document.createElement('div'); hint.className = 'learn-hint';
+                hint.innerText = learnCaptures.length === 0 ? "Nyomd meg a Genón a kívánt gombot (pl. Registration). A beérkező SysEx üzenetek itt jelennek meg." : "Pipáld ki, melyik kerüljön a SysEx mezőbe (köztük 0,5 mp szünet). Ha kész, koppints a fenti gombra.";
+                box.appendChild(hint);
+                learnCaptures.forEach(function(c, i) {
+                    var row = document.createElement('label'); row.className = 'learn-item';
+                    var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = c.selected; cb.onchange = function() { c.selected = cb.checked; };
+                    var sp = document.createElement('span'); sp.innerText = (i + 1) + ". SysEx · " + c.bytes.length + " bájt" + (c.dup ? " (ismétlés)" : "") + "\n" + (describeSysex(c.bytes) ? describeSysex(c.bytes) + "\n" : "") + hexDisplay(c.bytes, 14);
+                    row.appendChild(cb); row.appendChild(sp); box.appendChild(row);
+                });
+            }
+        }
+        function applyLearnCaptures(target) {
+            var chosen = learnCaptures.filter(function(c) { return c.selected; }); if (chosen.length === 0) return;
+            var field = document.getElementById(target === 'cube' ? 'editCubeSysex' : 'editSongSysex');
+            field.value = chosen.map(function(c) { return c.hex; }).join("\nPAUSE 500\n");
+            showToast(chosen.length + " SysEx átvéve a SysEx mezőbe.");
+        }
+
+        // ---- Rückrichtung: Genos sendet Registration-SysEx -> passendes Lied im Popup
+        var recentIn = []; var genosMatchTimer = null; var genosPopupSongIdx = -1;
+        function songSysexSteps(song) {
+            var out = []; if (!song || !song.sysex) return out;
+            String(song.sysex).split(/\n/).forEach(function(line) {
+                if (/^\s*PAUSE/i.test(line) || !line.trim()) return;
+                var b = parseSysexString(line); if (b && b[0] === 0xF0) out.push(hexFull(b));
+            });
+            return out;
+        }
+        function registerIncomingSysex(bytes) {
+            var now = Date.now(); recentIn.push({ hex: hexFull(bytes), t: now });
+            recentIn = recentIn.filter(function(r) { return now - r.t < 3000; });
+            if (genosMatchTimer) clearTimeout(genosMatchTimer);
+            genosMatchTimer = setTimeout(matchIncomingToSong, 350);
+        }
+        function matchIncomingToSong() {
+            genosMatchTimer = null; var now = Date.now();
+            var set = {}; recentIn.forEach(function(r) { if (now - r.t < 3000) set[r.hex] = true; });
+            var best = -1, bestScore = 0;
+            songbookSongs.forEach(function(sg, i) {
+                var steps = songSysexSteps(sg); if (steps.length === 0) return;
+                for (var k = 0; k < steps.length; k++) { if (!set[steps[k]]) return; }
+                if (steps.length > bestScore) { bestScore = steps.length; best = i; }
+            });
+            recentIn = [];
+            if (best > -1) showGenosLyricsPopup(best);
+        }
+        function showGenosLyricsPopup(idx) {
+            var sg = songbookSongs[idx]; if (!sg) return; genosPopupSongIdx = idx;
+            document.getElementById('genosLyricsTitle').innerText = sg.title + (sg.artist ? " – " + sg.artist : "");
+            document.getElementById('genosLyricsBody').innerHTML = processLyricsWithTranspose(sg.lyrics, 0);
+            document.getElementById('genosLyricsModal').style.display = 'flex';
+        }
+        function closeGenosLyricsPopup() { document.getElementById('genosLyricsModal').style.display = 'none'; genosPopupSongIdx = -1; }
+
+        function handleMidiInputMessage(event) {
+            var raw = event.data; if (!raw || raw.length === 0) return;
+            var data = Array.prototype.slice.call(raw); var status = data[0];
+            var noise = (status === 0xFE || status === 0xF8);
+            if (!noise) logMidi("←", data);
+            if (!isMidiLearning && !noise && (status === 0xF0 || sysexBuf)) { var inDone = feedSysex(data); if (inDone) registerIncomingSysex(inDone); return; }
+            if (!isMidiLearning || noise) return;
+            var lb = document.getElementById(midiLearnTarget === 'cube' ? 'cubeLearnBtn' : 'songLearnBtn');
+            if (lb) lb.innerText = "💥 VÁRAKOZÁS… (utolsó jel: " + hexBytes(data) + ") – koppints ide, ha kész";
+            if (status === 0xF0 || sysexBuf) { var done = feedSysex(data); if (done) addLearnCapture(done); return; }
+            if ((status & 0xF0) === 0xB0) {
+                var controller = data[1]; var value = data[2];
+                if (controller === 0) lastCapturedMsb = value; else if (controller === 32) lastCapturedLsb = value;
+            } else if ((status & 0xF0) === 0xC0) {
+                var pcVal = data[1] + 1; var prefix = (midiLearnTarget === 'cube') ? 'editCube' : 'editSong';
+                if (lastCapturedMsb !== null) document.getElementById(prefix + 'Msb').value = lastCapturedMsb;
+                if (lastCapturedLsb !== null) document.getElementById(prefix + 'Lsb').value = lastCapturedLsb;
+                document.getElementById(prefix + 'Pc').value = pcVal;
+                showToast("Bank/PC átvéve (" + (lastCapturedMsb !== null ? lastCapturedMsb : "-") + " / " + (lastCapturedLsb !== null ? lastCapturedLsb : "-") + " / " + pcVal + ").");
+            }
+        }
+
+        function toggleMidiLearn(target, discard) {
+            if (!isMidiLearning && (midiState !== 'ready' || midiInputCount === 0)) { showToast(midiState !== 'ready' ? midiStateInfo().text : "Nincs MIDI bemenet – csatlakoztasd a Genost."); return; }
+            isMidiLearning = !isMidiLearning; midiLearnTarget = target;
+            var btn = document.getElementById(target === 'cube' ? 'cubeLearnBtn' : 'songLearnBtn');
+            if (isMidiLearning) {
+                lastCapturedMsb = null; lastCapturedLsb = null; learnCaptures = []; sysexBuf = null;
+                btn.innerText = "💥 VÁRAKOZÁS A GENOS JELÉRE… (koppints ide, ha kész)"; btn.classList.add('learning');
+            } else {
+                btn.innerText = "🔵 MIDI Tanulás (Auto-Capture)"; btn.classList.remove('learning');
+                if (!discard) applyLearnCaptures(target);
+                learnCaptures = []; sysexBuf = null;
+            }
+            renderLearnList();
+        }
+
+// ==================== EMBERI JELZÉS: ITT VAN A LEZÁRT 6. RÉSZ VÉGE ====================
+        function sendMidiMessage(bytes) {
+            if (!bytes) return false;
+            if (!midiOutput) { showToast(midiStateInfo().text); return false; }
+            try { midiOutput.send(bytes); logMidi("→", bytes); return true; }
+            catch (e) {
+                var en = (e && e.name) ? e.name : ""; var em = (e && e.message) ? e.message : String(e);
+                logMidiText("✖ " + hexBytes(bytes) + " (" + (en || "?") + ")");
+                if (bytes[0] === 0xF0 && (en === 'InvalidAccessError' || en === 'SecurityError')) showToast("SysEx nincs engedélyezve (" + en + ").");
+                else showToast("MIDI hiba (" + (en || "?") + "): " + em);
+                return false;
+            }
+        }
+        // Liest SysEx-Text tolerant: "F0 43 7E F7", "0xF0, 0x43", "F0437EF7", "43 7E" (Rahmen F0/F7 wird ergänzt)
+        function parseSysexString(hexStr) {
+            if (!hexStr) return null;
+            var tokens = String(hexStr).split(/[^0-9A-Za-z]+/); var bytes = [];
+            for (var i = 0; i < tokens.length; i++) {
+                var tk = tokens[i]; if (!tk) continue;
+                tk = tk.replace(/^0x/i, '').replace(/h$/i, ''); if (tk === '') continue;
+                if (!/^[0-9A-Fa-f]+$/.test(tk)) return null;
+                if (tk.length === 1) tk = '0' + tk;
+                if (tk.length % 2 !== 0) return null;
+                for (var j = 0; j < tk.length; j += 2) bytes.push(parseInt(tk.substr(j, 2), 16));
+            }
+            if (bytes.length === 0) return null;
+            if (bytes[0] < 0x80) bytes.unshift(0xF0);
+            if (bytes[0] === 0xF0 && bytes[bytes.length - 1] !== 0xF7) bytes.push(0xF7);
+            if (bytes[0] === 0xF0) { for (var k = 1; k < bytes.length - 1; k++) { if (bytes[k] > 0x7F) return null; } }
+            return bytes;
+        }
+        function logMidiText(txt) { midiLog.push(txt); midiLogFull.push(txt); if (midiLog.length > 60) { midiLog.shift(); midiLogFull.shift(); } renderMidiModal(); }
+        function sendSysexString(str) {
+            var lines = String(str).split(/[\r\n]+/); var steps = [];
+            for (var i = 0; i < lines.length; i++) {
+                var ln = lines[i].trim(); if (!ln) continue;
+                var pm = /^(?:pause|szünet|szunet|wait|p)\s*[:=]?\s*([0-9]+(?:[.,][0-9]+)?)\s*(ms|s|sec)?$/i.exec(ln);
+                if (pm) { var v = parseFloat(pm[1].replace(',', '.')); var unit = (pm[2] || 'ms').toLowerCase(); steps.push({ pause: (unit === 'ms') ? v : v * 1000 }); continue; }
+                var bytes = parseSysexString(ln);
+                if (!bytes) { logMidiText("✖ érvénytelen SysEx kód: " + ln); showToast("Érvénytelen SysEx kód: " + ln); return false; }
+                steps.push({ bytes: bytes });
+            }
+            if (steps.length === 0) return false;
+            var idx = 0; var ok = true;
+            (function next() {
+                while (idx < steps.length) {
+                    var st = steps[idx++];
+                    if (st.pause !== undefined) { setTimeout(next, st.pause); return; }
+                    if (!sendMidiMessage(st.bytes)) ok = false;
+                }
+            })();
+            return ok;
+        }
+        var activeTempoValue = null;
+        function setActiveTempo(v) {
+            activeTempoValue = (v === undefined || v === null || isNaN(v)) ? null : v;
+            var cubes = document.querySelectorAll('#tempoBar .tempo-cube');
+            for (var i = 0; i < cubes.length; i++) { if (activeTempoValue !== null && cubes[i].innerText === String(activeTempoValue)) cubes[i].classList.add('active-tempo'); else cubes[i].classList.remove('active-tempo'); }
+        }
+        
+        function sendBankAndProgramChange(msb, lsb, pc) {
+            if (msb !== "" && msb !== null && msb !== undefined) sendMidiMessage([0xB0 | (midiChannel & 15), 0x00, parseInt(msb)]);
+            if (lsb !== "" && lsb !== null && lsb !== undefined) sendMidiMessage([0xB0 | (midiChannel & 15), 0x20, parseInt(lsb)]);
+            if (pc !== "" && pc !== null && pc !== undefined) sendMidiMessage([0xC0 | (midiChannel & 15), Math.max(0, parseInt(pc) - 1)]);
+        }
+
+        // AKKORDSZÍNEZŐ: Kiszűri a szögletes zárójeleket [ ] és tűzpirosra festi az akkordokat a sárga alapon
+        var noteIndexMap = { "C":0, "C#":1, "Db":1, "D":2, "D#":3, "Eb":3, "E":4, "F":5, "F#":6, "Gb":6, "G":7, "G#":8, "Ab":8, "A":9, "A#":10, "Bb":10, "B":10, "Hb":10, "H":11, "Cb":11 };
+        var chordTokenRegex = /^[A-H][#b]?(maj|min|dim|aug|sus|add|m|M)?[0-9]*(\([^)]*\))?(\/[A-H][#b]?)?$/;
+
+        function transposeChordToken(token, offset) {
+            if (!chordTokenRegex.test(token)) return token;
+            return token.replace(/[A-H][#b]?/g, function(root) {
+                var idx = noteIndexMap[root];
+                if (idx === undefined) idx = noteIndexMap[root.charAt(0)];
+                if (idx === undefined) return root;
+                var n = (idx + offset) % 12; if (n < 0) n += 12;
+                return chordScale[n];
+            });
+        }
+
+        // AKKORDSZÍNEZŐ: a [ ] közötti akkordokat pirosra festi és transzponálja
+        function processLyricsWithTranspose(text, offset) {
+            if (!text) return "";
+            var cleanText = text.replace(/&lt;/g, "[").replace(/&gt;/g, "]");
+            return cleanText.replace(/\[([^\]]+)\]/g, function(match, chordContent) {
+                var transposedContent = chordContent.split(/(\s+)/).map(function(part) {
+                    return transposeChordToken(part, offset);
+                }).join("");
+                return '<span class="chord-highlight">' + transposedContent + '</span>';
+            });
+        }
+
+        function changeTranspose(direction) {
+            globalTransposeOffset += direction;
+            if (globalTransposeOffset > 6) globalTransposeOffset = 6;
+            if (globalTransposeOffset < -6) globalTransposeOffset = -6;
+            var displayVal = globalTransposeOffset > 0 ? "+" + globalTransposeOffset : globalTransposeOffset;
+            document.getElementById('transposeDisplayVal').innerText = displayVal;
+            if (currentSelectedSongIndex > -1 && songbookSongs[currentSelectedSongIndex]) {
+                var rawLyrics = songbookSongs[currentSelectedSongIndex].lyrics;
+                document.getElementById('lyricsDisplay').innerHTML = processLyricsWithTranspose(rawLyrics, globalTransposeOffset);
+            }
+        }
+
+        function switchView(mode) {
+            currentViewMode = mode; updateSongInfoBar(); var lyrDisplay = document.getElementById('lyricsDisplay'); var repContainer = document.getElementById('repertoireListContainer');
+            var transPanel = document.getElementById('transposeControlBox'); var topCubes = document.getElementById('topTransposeCubesContainer');
+            document.getElementById('viewLyricsBtn').classList.remove('active-view'); document.getElementById('viewRepertoireBtn').classList.remove('active-view');
+            if (mode === 'lyrics') {
+                document.getElementById('viewLyricsBtn').classList.add('active-view');
+                lyrDisplay.style.display = "block"; repContainer.style.display = "none"; transPanel.style.display = "flex"; topCubes.style.display = "flex";
+            } else {
+                document.getElementById('viewRepertoireBtn').classList.add('active-view');
+                lyrDisplay.style.display = "none"; repContainer.style.display = "block"; transPanel.style.display = "none"; topCubes.style.display = "none";
+                filterByGenre(activeGenreFilter);
+            }
+        }
+
+        function genreMatches(song, genreName) {
+            if (genreName === 'all') return true;
+            var songStyle = (song.style || "").toLowerCase().trim(); var target = genreName.toLowerCase().trim();
+            if (target === 'csárdás') return songStyle.indexOf('csárdás') > -1 || songStyle.indexOf('csardas') > -1;
+            return songStyle.indexOf(target) > -1;
+        }
+
+        function songMatchesQuery(song, query) {
+            if (!query) return true;
+            var texts = [song.title, song.artist, song.style, song.genosStyle];
+            for (var i = 0; i < texts.length; i++) { if (texts[i] && String(texts[i]).toLowerCase().indexOf(query) > -1) return true; }
+            return !!(song.tempo && String(song.tempo).indexOf(query) === 0);
+        }
+
+        // Kategória + keresés együtt: csak a kiválasztott kategória dalai jelennek meg
+        function refreshRepertoire() {
+            var query = document.getElementById('songSearch').value.toLowerCase().trim();
+            renderRepertoireList(songbookSongs.filter(function(s) { return genreMatches(s, activeGenreFilter) && songMatchesQuery(s, query); }));
+        }
+
+        function filterByGenre(genreName) {
+            activeGenreFilter = genreName;
+            var buttons = document.querySelectorAll('.btn-genre'); buttons.forEach(function(btn) { btn.classList.remove('active-genre'); });
+            var targetId = "genre-" + (genreName === 'all' ? 'all' : genreName.replace(/á/g, 'a'));
+            var activeBtn = document.getElementById(targetId); if (activeBtn) activeBtn.classList.add('active-genre');
+            refreshRepertoire();
+        }
+
+        function updateSongInfoBar() {
+            var bar = document.getElementById('songInfoBar'); if (!bar) return;
+            var song = (currentSelectedSongIndex > -1) ? songbookSongs[currentSelectedSongIndex] : null;
+            if (currentViewMode === 'lyrics' && song && song.genosStyle) { bar.innerText = "🎹 Style: " + song.genosStyle; bar.style.display = "block"; }
+            else { bar.style.display = "none"; }
+        }
+// ==================== EMBERI JELZÉS: ITT VAN A LEZÁRT 7/A. RÉSZ VÉGE ====================
+        // DALOK BETÖLTÉSE: fájlválasztó (működik minden WebView-ban, mappa-létrehozás nélkül)
+        function scanInternalStorage() {
+            document.getElementById('importFileInput').value = ""; document.getElementById('importGenosStyle').value = "";
+            document.getElementById('importModal').style.display = 'flex';
+            document.getElementById('nativeFolderBox').style.display = nativeFolderPlugin() ? 'block' : 'none';
+        }
+        function nativeFolderPlugin() { try { return (window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform() && Capacitor.Plugins && Capacitor.Plugins.SongFolder) ? Capacitor.Plugins.SongFolder : null; } catch (e) { return null; } }
+        function scanSongFolder() {
+            var pl = nativeFolderPlugin(); if (!pl) { showToast("Ez csak a telepített appban működik."); return; }
+            pl.status().then(function(st) {
+                if (!st.granted) { showToast("Engedélyezd a fájlhozzáférést, majd nyomd meg újra a gombot."); return pl.requestAccess(); }
+                return pl.scan().then(function(res) {
+                    var chosen = document.getElementById('importCategory').value; var genosStyle = document.getElementById('importGenosStyle').value.trim();
+                    var added = 0, skipped = 0;
+                    (res.items || []).forEach(function(it) {
+                        try {
+                            var bin = atob(it.data); var u8 = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+                            var title = it.name.replace(/\.[^/.]+$/, ""); var cat = it.category || chosen;
+                            if (songbookSongs.some(function(x) { return x.title === title && x.style === cat; })) { skipped++; return; }
+                            saveLocalScannedSong(title, decodeSongBuffer(u8.buffer), cat, genosStyle); added++;
+                        } catch (e) { skipped++; }
+                    });
+                    closeImportModal();
+                    showToast(added + " új dal betöltve" + (skipped ? " (" + skipped + " már megvolt)" : "") + " – " + res.path);
+                });
+            }).catch(function(e) { showToast("Hiba: " + ((e && e.message) || e)); });
+        }
+        function closeImportModal() { document.getElementById('importModal').style.display = 'none'; }
+
+        function decodeSongBuffer(buffer) {
+            var text;
+            try { text = new TextDecoder('utf-8', { fatal: true }).decode(buffer); }
+            catch (e) { text = new TextDecoder('windows-1250').decode(buffer); }
+            if (text.charCodeAt(0) === 0xFEFF) text = text.substr(1);
+            return text;
+        }
+
+        function startImport() {
+            var files = document.getElementById('importFileInput').files;
+            if (!files || files.length === 0) { alert("Válassz ki legalább egy .txt fájlt!"); return; }
+            var category = document.getElementById('importCategory').value; var genosStyle = document.getElementById('importGenosStyle').value.trim();
+            closeImportModal();
+
+            var list = Array.prototype.slice.call(files);
+            var progressPanel = document.getElementById('syncProgressPanel');
+            var progressBarFill = document.getElementById('syncProgressBarFill');
+            var progressTextMain = document.getElementById('progressTextMain');
+            var progressTextSub = document.getElementById('progressTextSub');
+            progressPanel.style.display = "block";
+            var done = 0;
+
+            function next() {
+                if (done >= list.length) {
+                    progressTextMain.innerText = "✅ Kész! 100%";
+                    progressTextSub.innerText = "Összesen " + list.length + " dal betöltve.";
+                    progressBarFill.style.width = "100%";
+                    setTimeout(function() { progressPanel.style.display = "none"; }, 2500);
+                    return;
+                }
+                var f = list[done];
+                var pct = Math.round((done / list.length) * 100);
+                var title = f.name.replace(/\.[^/.]+$/, "");
+                progressTextMain.innerText = "Betöltés: " + pct + "% (" + (done + 1) + "/" + list.length + ")";
+                progressTextSub.innerText = "[" + category + "] " + title;
+                progressBarFill.style.width = pct + "%";
+                var reader = new FileReader();
+                reader.onload = function(evt) {
+                    try { saveLocalScannedSong(title, decodeSongBuffer(evt.target.result), category, genosStyle); } catch (e) { console.log("Hiba: " + f.name); }
+                    done++; setTimeout(next, 20);
+                };
+                reader.onerror = function() { done++; setTimeout(next, 20); };
+                reader.readAsArrayBuffer(f);
+            }
+            next();
+        }
+
+        function saveLocalScannedSong(title, text, genre, genosStyle) {
+            var idx = songbookSongs.findIndex(function(s) { return s.title.toLowerCase() === title.toLowerCase(); });
+            var old = (idx > -1) ? songbookSongs[idx] : {};
+            var obj = {
+                title: title, lyrics: text, artist: old.artist || "",
+                style: old.style || genre,
+                genosStyle: genosStyle || old.genosStyle || "",
+                tempo: old.tempo || "",
+                msb: (old.msb !== undefined) ? old.msb : "", lsb: (old.lsb !== undefined) ? old.lsb : "",
+                pc: (old.pc !== undefined) ? old.pc : "", sysex: (old.sysex !== undefined) ? old.sysex : ""
+            };
+            if (idx > -1) { songbookSongs[idx] = obj; } else { songbookSongs.push(obj); }
+            localStorage.setItem('genosSongbookSongs', JSON.stringify(songbookSongs));
+            if (currentViewMode === 'repertoire') filterByGenre(activeGenreFilter);
+        }
+// ==================== EMBERI JELZÉS: ITT VAN A LEZÁRT 7/B. RÉSZ VÉGE ====================
+        function renderRepertoireList(songsArray) {
+            var container = document.getElementById('songsListSubContainer'); container.innerHTML = ''; 
+            if (songsArray.length === 0) { container.innerHTML = '<p style="color:#121216; font-style:italic; text-align:center; padding:20px; font-weight:bold;">Nincsenek dalok ebben a kategóriában.</p>'; return; }
+            var sorted = songsArray.map(function(s) { return s; }); sorted.sort(function(a,b) { return a.title.localeCompare(b.title, 'hu'); });
+            sorted.forEach(function(song) {
+                var origIdx = songbookSongs.findIndex(function(s) { return s.title === song.title; }); var div = document.createElement('div'); div.className = 'song-list-item'; div.onclick = function() { loadAndTriggerSong(origIdx); };
+                var infoDiv = document.createElement('div'); infoDiv.className = 'song-item-info-block';
+                var titleSpan = document.createElement('span'); titleSpan.className = 'song-item-title'; titleSpan.innerText = song.title; infoDiv.appendChild(titleSpan);
+                var subParts = []; if (song.artist) subParts.push(song.artist); if (song.style) subParts.push(song.style); if (song.genosStyle) subParts.push("Style: " + song.genosStyle); if (song.tempo) subParts.push(song.tempo + " BPM");
+                if (subParts.length > 0) { var subSpan = document.createElement('span'); subSpan.className = 'song-item-subdetails'; subSpan.innerText = subParts.join(" | "); infoDiv.appendChild(subSpan); }
+                var actDiv = document.createElement('div'); actDiv.className = 'song-item-actions';
+                var editBtn = document.createElement('button'); editBtn.className = 'btn-action'; editBtn.innerText = '📝'; editBtn.onclick = function(e) { e.stopPropagation(); openSongEditModal(origIdx); };
+                var delBtn = document.createElement('button'); delBtn.className = 'btn-action'; delBtn.innerText = '🗑️'; delBtn.onclick = function(e) { e.stopPropagation(); if (confirm("Törlöd?")) { songbookSongs.splice(origIdx, 1); if (currentSelectedSongIndex === origIdx) { currentSelectedSongIndex = -1; document.getElementById('lyricsDisplay').innerText = "Válassz egy dalt a Repertoárból vagy vezéreld a Genost az oldalsó gombokkal!"; } else if (currentSelectedSongIndex > origIdx) { currentSelectedSongIndex--; } localStorage.setItem('genosSongbookSongs', JSON.stringify(songbookSongs)); filterByGenre(activeGenreFilter); } };
+                actDiv.appendChild(editBtn); actDiv.appendChild(delBtn); div.appendChild(infoDiv); div.appendChild(actDiv); container.appendChild(div);
+            });
+        }
+
+        function handleSearchInput() {
+            var query = document.getElementById('songSearch').value.toLowerCase().trim();
+            if (query === "") { if (currentViewMode === 'lyrics') switchView('lyrics'); else filterByGenre(activeGenreFilter); return; }
+            document.getElementById('lyricsDisplay').style.display = "none"; document.getElementById('songInfoBar').style.display = "none";
+            document.getElementById('repertoireListContainer').style.display = "block"; refreshRepertoire();
+        }
+
+        function loadAndTriggerSong(index) {
+            currentSelectedSongIndex = index; var song = songbookSongs[index]; if (!song) return;
+            globalTransposeOffset = 0; document.getElementById('transposeDisplayVal').innerText = "0";
+            document.getElementById('lyricsDisplay').innerHTML = processLyricsWithTranspose(song.lyrics, globalTransposeOffset);
+            switchView('lyrics'); document.getElementById('songSearch').value = "";
+            if (song.msb !== "" || song.lsb !== "" || song.pc !== "") sendBankAndProgramChange(song.msb, song.lsb, song.pc);
+            if (song.sysex) sendSysexString(song.sysex);
+            setActiveTempo(parseInt(song.tempo, 10)); if (song.tempo && tempoData[song.tempo]) sendSysexString(tempoData[song.tempo]);
+        }
+
+        function openSongEditModal(index) { currentEditSongIndex = index; var song = songbookSongs[index]; document.getElementById('editSongTitle').value = song.title; document.getElementById('editSongArtist').value = song.artist || ""; document.getElementById('editSongStyle').value = song.style || ""; document.getElementById('editSongGenosStyle').value = song.genosStyle || ""; document.getElementById('editSongTempo').value = song.tempo || ""; document.getElementById('editSongMsb').value = song.msb || ""; document.getElementById('editSongLsb').value = song.lsb || ""; document.getElementById('editSongPc').value = song.pc || ""; document.getElementById('editSongSysex').value = song.sysex || ""; document.getElementById('songEditModal').style.display = 'flex'; }
+        function closeSongEditModal() { if (isMidiLearning) toggleMidiLearn('song', true); document.getElementById('songEditModal').style.display = 'none'; }
+        function saveSongEditData() { if (isMidiLearning) toggleMidiLearn(midiLearnTarget); var song = songbookSongs[currentEditSongIndex]; song.title = document.getElementById('editSongTitle').value.trim() || song.title; song.artist = document.getElementById('editSongArtist').value.trim(); song.style = document.getElementById('editSongStyle').value.trim(); song.genosStyle = document.getElementById('editSongGenosStyle').value.trim(); song.tempo = document.getElementById('editSongTempo').value.trim(); song.msb = document.getElementById('editSongMsb').value.trim(); song.lsb = document.getElementById('editSongLsb').value.trim(); song.pc = document.getElementById('editSongPc').value.trim(); song.sysex = document.getElementById('editSongSysex').value.trim(); localStorage.setItem('genosSongbookSongs', JSON.stringify(songbookSongs)); closeSongEditModal(); updateSongInfoBar(); if (currentViewMode === 'repertoire') filterByGenre(activeGenreFilter); }
+
+        function generateMainCubes(columnId, prefix) {
+            var container = document.getElementById(columnId); container.innerHTML = ''; var isLeft = prefix.indexOf('left') === 0; var dataSrc = isLeft ? leftCubesData : rightCubesData;
+            for (var i = 1; i <= 10; i++) {
+                var cubeId = prefix + "-" + i; var cubeData = dataSrc[cubeId] || { name: i + ". Bank" }; var div = document.createElement('div'); div.className = 'midi-cube'; div.id = "cube-" + cubeId;
+                div.setAttribute('onclick', "mainCubeClick('" + prefix + "', " + i + ")"); setupMobileLongPress(div, prefix + "Main", cubeId);
+                if (cubeData.icon) { div.innerHTML = '<img src="' + cubeData.icon + '" class="cube-icon">'; } else { div.innerHTML = '<span class="cube-text">' + (cubeData.name || (i + ". Bank")) + '</span>'; }
+                container.appendChild(div);
+            }
+        }
+        function generateSubCubes(columnId, prefix, mainIndex) {
+            var container = document.getElementById(columnId); container.innerHTML = ''; var isLeft = prefix.indexOf('left') === 0; var dataSrc = isLeft ? leftCubesData : rightCubesData;
+            for (var i = 1; i <= 10; i++) {
+                var cubeId = prefix + "-" + mainIndex + "-" + i; var cubeData = dataSrc[cubeId] || { name: "Reg " + i }; var div = document.createElement('div'); div.className = 'midi-cube'; div.id = "cube-" + cubeId;
+                div.setAttribute('onclick', "subCubeClick('" + prefix + "', " + mainIndex + ", " + i + ")"); setupMobileLongPress(div, prefix + "Sub", cubeId);
+                if (cubeData.icon) { div.innerHTML = '<img src="' + cubeData.icon + '" class="cube-icon">'; } else { div.innerHTML = '<span class="cube-text">' + (cubeData.name || ("Reg " + i)) + '</span>'; }
+                container.appendChild(div);
+            }
+        }
+// ==================== EMBERI JELZÉS: ITT VAN A LEZÁRT 8. RÉSZ VÉGE ====================
+        function generateTopCubes() {
+            var container = document.getElementById('topTransposeCubesContainer'); container.innerHTML = '';
+            for (var i = 1; i <= 8; i++) {
+                var cubeId = "top-" + i; var cubeData = topCubesData[cubeId] || { name: "T" + i };
+                var div = document.createElement('div'); div.className = 'midi-cube'; div.id = "cube-" + cubeId;
+                div.setAttribute('onclick', "topCubeClick(" + i + ")"); setupMobileLongPress(div, "top", cubeId);
+                if (cubeData.icon) { div.innerHTML = '<img src="' + cubeData.icon + '" class="cube-icon">'; } else { div.innerHTML = '<span class="cube-text">' + (cubeData.name || ("T" + i)) + '</span>'; }
+                container.appendChild(div);
+            }
+        }
+        function generateVocalCubes() {
+            var container = document.getElementById('vocalGrid'); if (!container) return; container.innerHTML = '';
+            for (var i = 1; i <= 32; i++) {
+                var cubeId = "vocal-" + i; var cubeData = vocalCubesData[cubeId] || { name: "V" + i };
+                var div = document.createElement('div'); div.className = 'midi-cube'; div.id = "cube-" + cubeId;
+                div.setAttribute('onclick', "vocalCubeClick(" + i + ")"); setupMobileLongPress(div, "vocal", cubeId);
+                if (cubeData.icon) { div.innerHTML = '<img src="' + cubeData.icon + '" class="cube-icon">'; } else { div.innerHTML = '<span class="cube-text">' + (cubeData.name || ("V" + i)) + '</span>'; }
+                container.appendChild(div);
+            }
+        }
+        function vocalCubeClick(index) { var cData = vocalCubesData["vocal-" + index]; if (!cData) return; if (cData.msb !== "" || cData.lsb !== "" || cData.pc !== "") sendBankAndProgramChange(cData.msb, cData.lsb, cData.pc); if (cData.sysex) sendSysexString(cData.sysex); }
+        function positionVocalPanel() {
+            var p = document.getElementById('vocalPanel'); if (!p || p.style.display !== 'flex') return;
+            var r = document.getElementById('centerZone').getBoundingClientRect();
+            p.style.left = r.left + 'px'; p.style.top = r.top + 'px'; p.style.width = r.width + 'px'; p.style.height = r.height + 'px';
+        }
+        function openVocalModal() { document.getElementById('vocalPanel').style.display = 'flex'; positionVocalPanel(); }
+        function closeVocalModal() { document.getElementById('vocalPanel').style.display = 'none'; }
+        function toggleVocalPanel() { if (document.getElementById('vocalPanel').style.display === 'flex') closeVocalModal(); else openVocalModal(); }
+        window.addEventListener('resize', positionVocalPanel);
+        if (window.ResizeObserver) { new ResizeObserver(positionVocalPanel).observe(document.getElementById('centerZone')); }
+        function topCubeClick(index) { var cData = topCubesData["top-" + index]; if (!cData) return; if (cData.msb !== "" || cData.lsb !== "" || cData.pc !== "") sendBankAndProgramChange(cData.msb, cData.lsb, cData.pc); if (cData.sysex) sendSysexString(cData.sysex); }
+        function setupMobileLongPress(element, type, id) { var pressTimer; var isLongPress = false; element.addEventListener('touchstart', function(e) { isLongPress = false; pressTimer = setTimeout(function() { isLongPress = true; cubeOpenForm(type, id); }, 750); }, {passive: true}); element.addEventListener('touchend', function(e) { clearTimeout(pressTimer); if (isLongPress) { e.preventDefault(); e.stopPropagation(); } }); element.addEventListener('touchmove', function() { clearTimeout(pressTimer); }); }
+        function cubeOpenForm(type, id) { currentEditCubeType = type; currentEditCubeId = id; tempUploadedIconBase64 = ""; var isLeft = (type === 'leftMain' || type === 'leftSub'); var isRight = (type === 'rightMain' || type === 'rightSub'); var dataSrc = (type === 'vocal') ? vocalCubesData : (isLeft ? leftCubesData : (isRight ? rightCubesData : topCubesData)); var cData = dataSrc[id] || {}; document.getElementById('cubeEditTitle').innerText = "Kocka: " + id; document.getElementById('editCubeName').value = cData.name || ""; document.getElementById('editCubeMsb').value = cData.msb !== undefined ? cData.msb : ""; document.getElementById('editCubeLsb').value = cData.lsb !== undefined ? cData.lsb : ""; document.getElementById('editCubePc').value = cData.pc !== undefined ? cData.pc : ""; document.getElementById('editCubeSysex').value = cData.sysex || ""; if (cData.icon) tempUploadedIconBase64 = cData.icon; document.getElementById('cubeEditModal').style.display = 'flex'; }
+// ==================== EMBERI JELZÉS: ITT VAN A LEZÁRT 9/A. RÉSZ VÉGE ====================
+        function mainCubeClick(prefix, index) { var isLeft = prefix === 'left'; var subColumn = document.getElementById(isLeft ? 'leftSubColumn' : 'rightSubColumn'); var currentActive = isLeft ? activeLeftMain : activeRightMain; if (currentActive === index) { subColumn.classList.remove('open'); if (isLeft) activeLeftMain = -1; else activeRightMain = -1; document.getElementById("cube-" + prefix + "-" + index).classList.remove('active-bank'); return; } if (currentActive !== -1) { var old = document.getElementById("cube-" + prefix + "-" + currentActive); if (old) old.classList.remove('active-bank'); } if (isLeft) activeLeftMain = index; else activeRightMain = index; document.getElementById("cube-" + prefix + "-" + index).classList.add('active-bank'); generateSubCubes(isLeft ? 'leftSubColumn' : 'rightSubColumn', prefix, index); subColumn.classList.add('open'); triggerMidiExecution(prefix, prefix + "-" + index); }
+        function subCubeClick(prefix, mainIndex, subIndex) { var isLeft = prefix === 'left'; var currentActiveSub = isLeft ? activeLeftSub : activeRightSub; if (currentActiveSub !== -1) { var oldSub = document.getElementById("cube-" + prefix + "-" + mainIndex + "-" + currentActiveSub); if (oldSub) oldSub.classList.remove('active-sub'); } if (isLeft) activeLeftSub = subIndex; else activeRightSub = subIndex; var newSub = document.getElementById("cube-" + prefix + "-" + mainIndex + "-" + subIndex); if (newSub) newSub.classList.add('active-sub'); triggerMidiExecution(prefix, prefix + "-" + mainIndex + "-" + subIndex); }
+        
+        // AZ ATOMBIZTOS HARDVERVEZÉRLŐ LOGIKA: Ez futtatja a gombok MIDI parancsait
+        function triggerMidiExecution(prefix, cubeId) { var dataSrc = (prefix === 'left') ? leftCubesData : rightCubesData; var cData = dataSrc[cubeId]; if (!cData) return; if (cData.msb !== "" || cData.lsb !== "" || cData.pc !== "") sendBankAndProgramChange(cData.msb, cData.lsb, cData.pc); if (cData.sysex) sendSysexString(cData.sysex); }
+        
+        function generateTempoCubes() { var container = document.getElementById('tempoBar'); container.innerHTML = ''; for (var t = 50; t <= 180; t += 10) { var div = document.createElement('div'); div.className = 'tempo-cube'; div.innerText = t; div.setAttribute('onclick', "tempoCubeClick(" + t + ")"); div.setAttribute('oncontextmenu', "tempoCubeLongPress(" + t + ", event)"); setupTempoMobileLongPress(div, t); container.appendChild(div); } }
+        function setupTempoMobileLongPress(el, t) { var timer; var longPressed = false; el.addEventListener('touchstart', function(e) { longPressed = false; timer = setTimeout(function() { longPressed = true; tempoCubeLongPress(t, e); }, 700); }); el.addEventListener('touchend', function(e) { clearTimeout(timer); if (longPressed) { e.preventDefault(); } }); el.addEventListener('touchmove', function() { clearTimeout(timer); }); }
+        function tempoCubeClick(t) {
+            setActiveTempo(t);
+            var s = tempoData[t];
+            if (!s) { showToast("Nincs SysEx beállítva a " + t + " BPM-hez – tartsd nyomva a gombot."); return; }
+            sendSysexString(s);
+        }
+        function tempoCubeLongPress(t, e) { if (e) e.preventDefault(); currentEditTempoValue = t; document.getElementById('tempoEditTitle').innerText = t + " BPM SysEx"; document.getElementById('editTempoSysex').value = tempoData[t] || ""; document.getElementById('tempoEditModal').style.display = 'flex'; }
+        function closeTempoEditModal() { document.getElementById('tempoEditModal').style.display = 'none'; }
+        function saveTempoEditData() { var s = document.getElementById('editTempoSysex').value.trim(); if (s) tempoData[currentEditTempoValue] = s; else delete tempoData[currentEditTempoValue]; localStorage.setItem('genosTempoSysex', JSON.stringify(tempoData)); closeTempoEditModal(); }
+        function closeCubeEditModal() { if (isMidiLearning) toggleMidiLearn('cube', true); document.getElementById('cubeEditModal').style.display = 'none'; }
+        function loadCubeIconFile(e) { var file = e.target.files && e.target.files[0]; if (!file) return; var reader = new FileReader(); reader.onload = function(evt) { tempUploadedIconBase64 = evt.target.result; }; reader.readAsDataURL(file); }
+        function clearCubeIcon() { tempUploadedIconBase64 = ""; document.getElementById('editCubeIcon').value = ""; alert("Ikon törölve."); }
+// ==================== EMBERI JELZÉS: ITT VAN A LEZÁRT 9/B. RÉSZ VÉGE ====================
+        function saveCubeEditData() { if (isMidiLearning) toggleMidiLearn(midiLearnTarget); var name = document.getElementById('editCubeName').value.trim(); var msb = document.getElementById('editCubeMsb').value.trim(); var lsb = document.getElementById('editCubeLsb').value.trim(); var pc = document.getElementById('editCubePc').value.trim(); var sysex = document.getElementById('editCubeSysex').value.trim(); var isLeft = (currentEditCubeType === 'leftMain' || currentEditCubeType === 'leftSub'); var isRight = (currentEditCubeType === 'rightMain' || currentEditCubeType === 'rightSub'); var dataSrc = (currentEditCubeType === 'vocal') ? vocalCubesData : (isLeft ? leftCubesData : (isRight ? rightCubesData : topCubesData)); dataSrc[currentEditCubeId] = { name: name, msb: msb !== "" ? parseInt(msb) : "", lsb: lsb !== "" ? parseInt(lsb) : "", pc: pc !== "" ? parseInt(pc) : "", sysex: sysex, icon: tempUploadedIconBase64 }; if (isLeft) { localStorage.setItem('genosLeftCubes', JSON.stringify(leftCubesData)); generateMainCubes('leftMainColumn', 'left'); if (activeLeftMain !== -1) generateSubCubes('leftSubColumn', 'left', activeLeftMain); } else if (isRight) { localStorage.setItem('genosRightCubes', JSON.stringify(rightCubesData)); generateMainCubes('rightMainColumn', 'right'); if (activeRightMain !== -1) generateSubCubes('rightSubColumn', 'right', activeRightMain); } else if (currentEditCubeType === 'vocal') { localStorage.setItem('genosVocalCubes', JSON.stringify(vocalCubesData)); generateVocalCubes(); } else { localStorage.setItem('genosTopCubes', JSON.stringify(topCubesData)); generateTopCubes(); } closeCubeEditModal(); }
+        function openBackupModal() { document.getElementById('backupTextArea').value = JSON.stringify({ songs: songbookSongs, leftCubes: leftCubesData, rightCubes: rightCubesData, tempo: tempoData, topCubes: topCubesData, vocalCubes: vocalCubesData }); document.getElementById('btnCopyText').innerText = "Másolás"; document.getElementById('backupModal').style.display = 'flex'; }
+        function closeBackupModal() { document.getElementById('backupModal').style.display = 'none'; }
+        function copyBackupText() { var copyText = document.getElementById("backupTextArea"); copyText.select(); copyText.setSelectionRange(0, 99999); try { document.execCommand("copy"); document.getElementById('btnCopyText').innerText = "✔️ Másolva!"; } catch (err) { alert("Sikertelen."); } }
+        function executeCodeImport() { var text = document.getElementById('backupTextArea').value.trim(); if (!text) return; try { var imported = JSON.parse(text); if (imported) { songbookSongs = imported.songs || []; leftCubesData = imported.leftCubes || {}; rightCubesData = imported.rightCubes || {}; tempoData = imported.tempo || {}; topCubesData = imported.topCubes || {}; vocalCubesData = imported.vocalCubes || {}; localStorage.setItem('genosSongbookSongs', JSON.stringify(songbookSongs)); localStorage.setItem('genosLeftCubes', JSON.stringify(leftCubesData)); localStorage.setItem('genosRightCubes', JSON.stringify(rightCubesData)); localStorage.setItem('genosTempoSysex', JSON.stringify(tempoData)); localStorage.setItem('genosTopCubes', JSON.stringify(topCubesData)); localStorage.setItem('genosVocalCubes', JSON.stringify(vocalCubesData)); generateMainCubes('leftMainColumn', 'left'); generateMainCubes('rightMainColumn', 'right'); generateTopCubes(); generateVocalCubes(); document.getElementById('leftSubColumn').classList.remove('open'); document.getElementById('rightSubColumn').classList.remove('open'); activeLeftMain = -1; activeRightMain = -1; currentSelectedSongIndex = -1; switchView('repertoire'); closeBackupModal(); alert("Minden adat visszatöltve!"); } } catch (e) { alert("Hiba!"); } }
+        function checkAndNotifyFolders() { setTimeout(function() { var checked = localStorage.getItem('genosImportHintShown'); if (!checked) { alert("Üdv!\n\nA dalok betöltéséhez használd a 📂 Betöltés gombot: válaszd ki a .txt fájlokat és a kategóriát."); localStorage.setItem('genosImportHintShown', 'true'); } }, 1500); }
+        window.onclick = function(event) { if (event.target == document.getElementById('backupModal')) closeBackupModal(); if (event.target == document.getElementById('cubeEditModal')) closeCubeEditModal(); if (event.target == document.getElementById('tempoEditModal')) closeTempoEditModal(); if (event.target == document.getElementById('songEditModal')) closeSongEditModal(); if (event.target == document.getElementById('importModal')) closeImportModal(); if (event.target == document.getElementById('midiModal')) closeMidiModal(); }
+        
+        /* RENDSZER ELINDÍTÁSA */
+        generateMainCubes('leftMainColumn', 'left'); generateMainCubes('rightMainColumn', 'right'); generateTempoCubes(); generateTopCubes(); generateVocalCubes(); initMidi(); checkAndNotifyFolders();
+    </script>
+</body>
+</html>
+<!-- ==================== EMBERI JELZÉS: ITT VAN A LEZÁRT 9/C. RÉSZ (KÓD VÉGE) ==================== -->

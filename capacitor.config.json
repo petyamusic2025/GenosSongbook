@@ -1,0 +1,6 @@
+{
+  "appId": "hu.petya.genossongbook",
+  "appName": "Genos Songbook",
+  "webDir": "www",
+  "android": { "allowMixedContent": true }
+}
