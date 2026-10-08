@@ -319,6 +319,10 @@
             <div class="form-group"><label>Genos Style (opcionális, minden kijelölt dalra érvényes):</label><input type="text" id="importGenosStyle" placeholder="Pl. 8Beat Modern"></div>
             <div class="form-group" id="nativeFolderBox" style="display:none;">
                 <button class="btn btn-save" style="width:100%;" onclick="scanSongFolder()">📁 Documents/GenosSongbook beolvasása</button>
+                <div style="display:flex;gap:6px;margin-top:6px;">
+                    <button class="btn btn-save" style="flex:1;" onclick="saveAllToFolder(true)">💾 Mentés a mappába</button>
+                    <button class="btn btn-cancel" style="flex:1;" onclick="if(confirm('Visszatöltöd a mappából az adatokat? A mostaniak felülíródnak.'))restoreFromFolder(false)">📥 Visszatöltés</button>
+                </div>
                 <div style="font-size:12px;opacity:.8;margin-top:4px;">Az almappa neve lesz a kategória (pl. Táncdal, Csárdás). A mappában közvetlenül lévő fájlok a fent kiválasztott kategóriába kerülnek.</div>
             </div>
             <div class="form-group"><label>Fájlok (többet is kijelölhetsz):</label>
@@ -761,22 +765,82 @@
         // Automatischer Import beim Start / Zurückkehren: neue .txt aus Documents/GenosSongbook (Unterordner = Kategorie)
         function autoImportFolder(pl) {
             pl.scan().then(function(res) {
-                var added = 0;
+                var added = 0, moved = 0;
                 (res.items || []).forEach(function(it) {
                     try {
                         var title = it.name.replace(/\.[^/.]+$/, ""); var cat = it.category || "Táncdal";
-                        if (songbookSongs.some(function(x) { return x.title.toLowerCase() === title.toLowerCase(); })) return;
+                        var ex = null; for (var q = 0; q < songbookSongs.length; q++) { if (songbookSongs[q].title.toLowerCase() === title.toLowerCase()) { ex = songbookSongs[q]; break; } }
+                        if (ex) { if (it.category && ex.style !== it.category) { ex.style = it.category; moved++; } return; }
                         var bin = atob(it.data); var u8 = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
                         saveLocalScannedSong(title, decodeSongBuffer(u8.buffer), cat, ""); added++;
                     } catch (e) {}
                 });
-                if (added > 0) { showToast(added + " új dal betöltve a mappából"); try { if (currentViewMode === 'repertoire') filterByGenre(activeGenreFilter); } catch (e) {} }
+                if (moved > 0) { try { localStorage.setItem('genosSongbookSongs', JSON.stringify(songbookSongs)); } catch (e) {} }
+                if (added > 0 || moved > 0) { showToast(added + " új dal betöltve" + (moved ? ", " + moved + " kategória a mappa szerint javítva" : "")); try { if (currentViewMode === 'repertoire') filterByGenre(activeGenreFilter); } catch (e) {} }
             }).catch(function() {});
         }
+        // ===== Adatmappa: genos-adatok.json + icons/ =====
+        var folderSaveTimer = null; var folderSaveEnabled = false; var iconWritten = {};
+        function dataObject() { return { songs: songbookSongs, leftCubes: leftCubesData, rightCubes: rightCubesData, tempo: tempoData, topCubes: topCubesData, vocalCubes: vocalCubesData }; }
+        function scheduleFolderSave() { if (!folderSaveEnabled) return; if (folderSaveTimer) clearTimeout(folderSaveTimer); folderSaveTimer = setTimeout(function() { saveAllToFolder(false); }, 2500); }
+        (function() {
+            var orig = Storage.prototype.setItem;
+            Storage.prototype.setItem = function(k, v) { orig.call(this, k, v); if (/^genos(SongbookSongs|LeftCubes|RightCubes|TempoSysex|TopCubes|VocalCubes)$/.test(k)) scheduleFolderSave(); };
+        })();
+        function saveAllToFolder(manual) {
+            var pl = nativeFolderPlugin(); if (!pl) { if (manual) showToast("Ez csak a telepített appban működik."); return Promise.resolve(); }
+            var copy = JSON.parse(JSON.stringify(dataObject())); var jobs = [];
+            ['leftCubes', 'rightCubes', 'topCubes', 'vocalCubes'].forEach(function(grp) {
+                var d = copy[grp] || {};
+                Object.keys(d).forEach(function(id) {
+                    var ic = d[id] && d[id].icon; if (!ic || ic.indexOf('data:') !== 0) return;
+                    var m = /^data:image\/([a-z0-9+.-]+);base64,(.*)$/i.exec(ic); if (!m) return;
+                    var ext = m[1].toLowerCase().replace('jpeg', 'jpg').replace('svg+xml', 'svg');
+                    var rel = 'icons/' + grp + '_' + String(id).replace(/[^A-Za-z0-9_-]/g, '_') + '.' + ext;
+                    d[id].icon = '@' + rel;
+                    var sig = m[2].length + ':' + m[2].slice(0, 40) + m[2].slice(-40);
+                    if (iconWritten[rel] !== sig) { jobs.push(pl.writeBase64({ path: rel, data: m[2] }).then(function() { iconWritten[rel] = sig; })); }
+                });
+            });
+            return Promise.all(jobs).then(function() { return pl.writeText({ path: 'genos-adatok.json', text: JSON.stringify(copy) }); })
+                .then(function() { if (manual) showToast("Elmentve: Documents/GenosSongbook/genos-adatok.json"); })
+                .catch(function(e) { if (manual) showToast("Mentési hiba: " + ((e && e.message) || e)); });
+        }
+        function restoreFromFolder(silent) {
+            var pl = nativeFolderPlugin(); if (!pl) return Promise.resolve(false);
+            return pl.readText({ path: 'genos-adatok.json' }).then(function(r) {
+                if (!r || !r.exists) { if (!silent) showToast("Nincs genos-adatok.json a mappában."); return false; }
+                var obj = JSON.parse(r.text); var jobs = [];
+                ['leftCubes', 'rightCubes', 'topCubes', 'vocalCubes'].forEach(function(grp) {
+                    var d = obj[grp] || {};
+                    Object.keys(d).forEach(function(id) {
+                        var ic = d[id] && d[id].icon; if (!ic || ic.charAt(0) !== '@') return;
+                        var rel = ic.slice(1); var ext = rel.split('.').pop().toLowerCase(); var mime = (ext === 'jpg') ? 'jpeg' : (ext === 'svg' ? 'svg+xml' : ext);
+                        jobs.push(pl.readBase64({ path: rel }).then(function(x) { d[id].icon = (x && x.exists) ? 'data:image/' + mime + ';base64,' + x.data : ''; }).catch(function() { d[id].icon = ''; }));
+                    });
+                });
+                return Promise.all(jobs).then(function() {
+                    songbookSongs = obj.songs || []; leftCubesData = obj.leftCubes || {}; rightCubesData = obj.rightCubes || {}; tempoData = obj.tempo || {}; topCubesData = obj.topCubes || {}; vocalCubesData = obj.vocalCubes || {};
+                    var was = folderSaveEnabled; folderSaveEnabled = false;
+                    localStorage.setItem('genosSongbookSongs', JSON.stringify(songbookSongs)); localStorage.setItem('genosLeftCubes', JSON.stringify(leftCubesData)); localStorage.setItem('genosRightCubes', JSON.stringify(rightCubesData)); localStorage.setItem('genosTempoSysex', JSON.stringify(tempoData)); localStorage.setItem('genosTopCubes', JSON.stringify(topCubesData)); localStorage.setItem('genosVocalCubes', JSON.stringify(vocalCubesData));
+                    folderSaveEnabled = was;
+                    generateMainCubes('leftMainColumn', 'left'); generateMainCubes('rightMainColumn', 'right'); generateTopCubes(); generateVocalCubes();
+                    currentSelectedSongIndex = -1; switchView('repertoire');
+                    showToast("Adatok visszatöltve a mappából (" + songbookSongs.length + " dal)"); return true;
+                });
+            }).catch(function(e) { if (!silent) showToast("Visszatöltési hiba: " + ((e && e.message) || e)); return false; });
+        }
+        function localDataIsEmpty() { return songbookSongs.length === 0 && Object.keys(leftCubesData).length === 0 && Object.keys(rightCubesData).length === 0 && Object.keys(topCubesData).length === 0 && Object.keys(vocalCubesData).length === 0 && Object.keys(tempoData).length === 0; }
+
         function initNativeFolder(askPermission) {
             var pl = nativeFolderPlugin(); if (!pl) return;
             pl.ensureFolders().then(function(st) {
-                if (st.granted) { autoImportFolder(pl); return; }
+                if (st.granted) {
+                    var first = !folderSaveEnabled;
+                    var go = (first && localDataIsEmpty()) ? restoreFromFolder(true) : Promise.resolve(false);
+                    go.then(function() { folderSaveEnabled = true; autoImportFolder(pl); if (first) scheduleFolderSave(); });
+                    return;
+                }
                 if (askPermission === true && confirm("A dalok mappájához (Documents/GenosSongbook) az appnak engedély kell az „Összes fájl elérésére”.\n\nA következő képernyőn kapcsold be az engedélyt, majd lépj vissza az appba.")) { pl.requestAccess(); }
             }).catch(function() {});
         }
@@ -786,20 +850,7 @@
             var pl = nativeFolderPlugin(); if (!pl) { showToast("Ez csak a telepített appban működik."); return; }
             pl.status().then(function(st) {
                 if (!st.granted) { showToast("Engedélyezd a fájlhozzáférést, majd nyomd meg újra a gombot."); return pl.requestAccess(); }
-                return pl.scan().then(function(res) {
-                    var chosen = document.getElementById('importCategory').value; var genosStyle = document.getElementById('importGenosStyle').value.trim();
-                    var added = 0, skipped = 0;
-                    (res.items || []).forEach(function(it) {
-                        try {
-                            var bin = atob(it.data); var u8 = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-                            var title = it.name.replace(/\.[^/.]+$/, ""); var cat = it.category || chosen;
-                            if (songbookSongs.some(function(x) { return x.title === title && x.style === cat; })) { skipped++; return; }
-                            saveLocalScannedSong(title, decodeSongBuffer(u8.buffer), cat, genosStyle); added++;
-                        } catch (e) { skipped++; }
-                    });
-                    closeImportModal();
-                    showToast(added + " új dal betöltve" + (skipped ? " (" + skipped + " már megvolt)" : "") + " – " + res.path);
-                });
+                closeImportModal(); autoImportFolder(pl); showToast("Mappa beolvasva: " + st.path);
             }).catch(function(e) { showToast("Hiba: " + ((e && e.message) || e)); });
         }
         function closeImportModal() { document.getElementById('importModal').style.display = 'none'; }

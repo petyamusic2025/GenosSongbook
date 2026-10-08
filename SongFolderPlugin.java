@@ -55,6 +55,66 @@ public class SongFolderPlugin extends Plugin {
         call.resolve(r);
     }
 
+    private File safe(String rel) throws Exception {
+        if (rel == null || rel.contains("..") || rel.startsWith("/")) throw new Exception("Érvénytelen útvonal");
+        return new File(root(), rel);
+    }
+
+    @PluginMethod
+    public void writeText(PluginCall call) {
+        try {
+            if (!granted()) { call.reject("Nincs hozzáférés."); return; }
+            File f = safe(call.getString("path")); f.getParentFile().mkdirs();
+            java.io.FileOutputStream o = new java.io.FileOutputStream(f);
+            o.write(call.getString("text", "").getBytes("UTF-8")); o.close();
+            call.resolve();
+        } catch (Exception e) { call.reject(e.getMessage()); }
+    }
+
+    @PluginMethod
+    public void writeBase64(PluginCall call) {
+        try {
+            if (!granted()) { call.reject("Nincs hozzáférés."); return; }
+            File f = safe(call.getString("path")); f.getParentFile().mkdirs();
+            java.io.FileOutputStream o = new java.io.FileOutputStream(f);
+            o.write(Base64.decode(call.getString("data", ""), Base64.DEFAULT)); o.close();
+            call.resolve();
+        } catch (Exception e) { call.reject(e.getMessage()); }
+    }
+
+    private byte[] readAll(File f) throws Exception {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        FileInputStream in = new FileInputStream(f);
+        byte[] buf = new byte[16384]; int n;
+        while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+        in.close();
+        return bos.toByteArray();
+    }
+
+    @PluginMethod
+    public void readText(PluginCall call) {
+        try {
+            if (!granted()) { call.reject("Nincs hozzáférés."); return; }
+            File f = safe(call.getString("path"));
+            JSObject r = new JSObject();
+            r.put("exists", f.isFile());
+            if (f.isFile()) r.put("text", new String(readAll(f), "UTF-8"));
+            call.resolve(r);
+        } catch (Exception e) { call.reject(e.getMessage()); }
+    }
+
+    @PluginMethod
+    public void readBase64(PluginCall call) {
+        try {
+            if (!granted()) { call.reject("Nincs hozzáférés."); return; }
+            File f = safe(call.getString("path"));
+            JSObject r = new JSObject();
+            r.put("exists", f.isFile());
+            if (f.isFile()) r.put("data", Base64.encodeToString(readAll(f), Base64.NO_WRAP));
+            call.resolve(r);
+        } catch (Exception e) { call.reject(e.getMessage()); }
+    }
+
     @PluginMethod
     public void requestAccess(PluginCall call) {
         try {
