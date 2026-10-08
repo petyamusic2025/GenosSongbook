@@ -790,13 +790,21 @@
         // AKKORDSZÍNEZŐ: a [ ] közötti akkordokat pirosra festi és transzponálja
         function processLyricsWithTranspose(text, offset) {
             if (!text) return "";
-            var cleanText = text.replace(/&lt;/g, "[").replace(/&gt;/g, "]");
-            return cleanText.replace(/\[([^\]]+)\]/g, function(match, chordContent) {
-                var transposedContent = chordContent.split(/(\s+)/).map(function(part) {
-                    return transposeChordToken(part, offset);
-                }).join("");
-                return '<span class="chord-highlight">' + transposedContent + '</span>';
-            });
+            var cleanText = text.replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+            function chordSpan(content) {
+                var t = content.split(/(\s+)/).map(function(part) { return transposeChordToken(part, offset); }).join("");
+                return '<span class="chord-highlight">' + t + '</span>';
+            }
+            return cleanText.split(/\r?\n/).map(function(line) {
+                // 1) Csak akkordokból álló sor (pl. "Am   C   G/B"): minden akkord piros
+                var toks = line.trim().split(/\s+/);
+                if (line.trim() && toks.every(function(t) { return chordTokenRegex.test(t); }) && (toks.length > 1 || toks[0].length > 1)) {
+                    return line.split(/(\s+)/).map(function(part) { return chordTokenRegex.test(part) ? chordSpan(part) : part; }).join("");
+                }
+                // 2) [Am] vagy <Am> jelölésű akkordok a szövegben
+                return line.replace(/\[([^\]]+)\]/g, function(m, c) { return chordSpan(c); })
+                           .replace(/<([A-H][^<>\s]*(?:\s+[A-H][^<>\s]*)*)>/g, function(m, c) { return chordTokenRegex.test(c.split(/\s+/)[0]) ? chordSpan(c) : m; });
+            }).join("\n");
         }
 
         function changeTranspose(direction) {
@@ -1208,9 +1216,8 @@
                 box.style.whiteSpace = ''; var pre = '';
                 if (m) pre = '<div class="media-switch"><button class="btn-top" onclick="songShowMode=\'img\';renderSongBody()">🖼 Kép</button></div>';
                 box.innerHTML = pre + processLyricsWithTranspose(song.lyrics, globalTransposeOffset);
-            } else {
-                box.style.whiteSpace = ''; box.innerText = "(Szöveg kikapcsolva – pipáld be a Szöveg vagy PDF/kép jelölőt.)";
             }
+            // Ha a Szöveg ki van kapcsolva és nincs kép: marad az előző tartalom, nem írunk ki semmit
         }
         // ===== MP3 lejátszó =====
         var audioEl = null;
