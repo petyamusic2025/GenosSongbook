@@ -410,6 +410,7 @@
                 var t = ""; for (var i = 10; i < end; i++) { if (b[i] >= 32 && b[i] < 127) t += String.fromCharCode(b[i]); else if (b[i] === 0) break; else t += "?"; }
                 if (t) return "Registration bank: " + utf7decode(t);
             }
+            if (b[5] === 0x25 && b.length === 12 && b[6] === 0x11 && b[7] === 0 && b[8] === 2 && b[9] === 0 && b[10] < 10) return "Registration Button " + (b[10] + 1) + " (parancs)";
             if (b[5] === 0x25 && b.length === 13 && b[6] === 0 && b[7] === 1 && b[8] === 1 && b[9] === 0 && b[10] === 1 && b[11] < 10) return "Registration Button " + (b[11] + 1);
             if (b[5] === 0x25) return "Registration gomb (adat: " + hexDisplay(b.slice(6, end), 12) + ")";
             return "";
@@ -551,12 +552,18 @@
                 }
             }
         }
+        // A Genos által küldött értesítés (00 01 01 00 01 xx) helyett a Genosnak szóló PARANCS formátum: F0 43 73 01 52 25 11 00 02 00 xx F7 (xx = 0..9 → 1..10. gomb az aktuális bankban)
+        function buttonCommandHex(c) {
+            var b = c.bytes;
+            if (c.kind === 'button' && b.length === 13 && b[6] === 0 && b[7] === 1 && b[8] === 1 && b[9] === 0 && b[10] === 1 && b[11] < 10) return hexFull([0xF0, 0x43, 0x73, 0x01, 0x52, 0x25, 0x11, 0x00, 0x02, 0x00, b[11], 0xF7]);
+            return c.hex;
+        }
         function applyLearnCaptures(target) {
             var chosen = learnCaptures.filter(function(c) { return c.selected; }); if (chosen.length === 0) return;
             var order = { bank: 0, button: 1 };
             chosen = chosen.map(function(c, i) { return { c: c, i: i, o: (order[c.kind] !== undefined) ? order[c.kind] : 2 }; }).sort(function(a, b) { return (a.o - b.o) || (a.i - b.i); }).map(function(x) { return x.c; });
             var field = document.getElementById(target === 'cube' ? 'editCubeSysex' : 'editSongSysex');
-            field.value = chosen.map(function(c) { return c.hex; }).join("\nPAUSE 500\n");
+            field.value = chosen.map(function(c) { return buttonCommandHex(c); }).join("\nPAUSE 500\n");
             showToast(chosen.length + " SysEx átvéve a SysEx mezőbe.");
         }
 
