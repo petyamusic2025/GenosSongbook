@@ -370,7 +370,7 @@
         var chordScale = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "B", "H"];
 
         var isMidiLearning = false; var midiLearnTarget = "";
-        var lastCapturedMsb = null; var lastCapturedLsb = null;
+        var lastCapturedMsb = null; var lastCapturedLsb = null; var msbByCh = {}; var lsbByCh = {};
         var midiAccess = null; var midiOutput = null;
 
         // ===== MIDI: állapot, napló, kimenet-választás =====
@@ -574,15 +574,22 @@
             var lb = document.getElementById(midiLearnTarget === 'cube' ? 'cubeLearnBtn' : 'songLearnBtn');
             if (lb) lb.innerText = "💥 VÁRAKOZÁS… (utolsó jel: " + hexBytes(data) + ") – koppints ide, ha kész";
             if (status === 0xF0 || sysexBuf) { var done = feedSysex(data); if (done) addLearnCapture(done); return; }
+            var ch = status & 0x0F;
+            // Dal: csak SysEx (útvonal + gomb) – nem köti MSB/LSB/PC-hez, így mappától és sorszámtól független (mint a MobileSheets)
+            if (midiLearnTarget === 'song') return;
             if ((status & 0xF0) === 0xB0) {
                 var controller = data[1]; var value = data[2];
-                if (controller === 0) lastCapturedMsb = value; else if (controller === 32) lastCapturedLsb = value;
+                if (controller === 0) { msbByCh[ch] = value; lastCapturedMsb = value; } else if (controller === 32) { lsbByCh[ch] = value; lastCapturedLsb = value; }
             } else if ((status & 0xF0) === 0xC0) {
                 var pcVal = data[1] + 1; var prefix = (midiLearnTarget === 'cube') ? 'editCube' : 'editSong';
-                if (lastCapturedMsb !== null) document.getElementById(prefix + 'Msb').value = lastCapturedMsb;
-                if (lastCapturedLsb !== null) document.getElementById(prefix + 'Lsb').value = lastCapturedLsb;
+                // MIDI-kocka: a Genos regisztrációs gombjai csak 1–10 lehetnek
+                if (midiLearnTarget === 'cube' && pcVal > 10) { showToast("Kihagyva: PC " + pcVal + " (ch " + (ch + 1) + ") – a regisztrációs gomb csak 1–10 lehet."); return; }
+                // MSB/LSB ugyanarról a csatornáról, mint a PC (nem másik hangszín-csatornáról)
+                var m = (msbByCh[ch] !== undefined) ? msbByCh[ch] : null; var l = (lsbByCh[ch] !== undefined) ? lsbByCh[ch] : null;
+                if (m !== null) document.getElementById(prefix + 'Msb').value = m;
+                if (l !== null) document.getElementById(prefix + 'Lsb').value = l;
                 document.getElementById(prefix + 'Pc').value = pcVal;
-                showToast("Bank/PC átvéve (" + (lastCapturedMsb !== null ? lastCapturedMsb : "-") + " / " + (lastCapturedLsb !== null ? lastCapturedLsb : "-") + " / " + pcVal + ").");
+                showToast("Bank/PC átvéve – ch " + (ch + 1) + ": " + (m !== null ? m : "-") + " / " + (l !== null ? l : "-") + " / " + pcVal + ".");
             }
         }
 
@@ -591,7 +598,7 @@
             isMidiLearning = !isMidiLearning; midiLearnTarget = target;
             var btn = document.getElementById(target === 'cube' ? 'cubeLearnBtn' : 'songLearnBtn');
             if (isMidiLearning) {
-                lastCapturedMsb = null; lastCapturedLsb = null; learnCaptures = []; sysexBuf = null;
+                lastCapturedMsb = null; lastCapturedLsb = null; msbByCh = {}; lsbByCh = {}; learnCaptures = []; sysexBuf = null;
                 btn.innerText = "💥 VÁRAKOZÁS A GENOS JELÉRE… (koppints ide, ha kész)"; btn.classList.add('learning');
             } else {
                 btn.innerText = "🔵 MIDI Tanulás (Auto-Capture)"; btn.classList.remove('learning');
