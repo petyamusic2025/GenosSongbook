@@ -410,6 +410,7 @@
                 var t = ""; for (var i = 10; i < end; i++) { if (b[i] >= 32 && b[i] < 127) t += String.fromCharCode(b[i]); else if (b[i] === 0) break; else t += "?"; }
                 if (t) return "Registration bank: " + utf7decode(t);
             }
+            if (b[5] === 0x25 && b.length === 13 && b[6] === 0 && b[7] === 1 && b[8] === 1 && b[9] === 0 && b[10] === 1 && b[11] < 10) return "Registration Button " + (b[11] + 1);
             if (b[5] === 0x25) return "Registration gomb (adat: " + hexDisplay(b.slice(6, end), 12) + ")";
             return "";
         }
@@ -514,7 +515,8 @@
         }
         function addLearnCapture(bytes) {
             var hex = hexFull(bytes); var dup = learnCaptures.some(function(c) { return c.hex === hex; });
-            learnCaptures.push({ bytes: bytes, hex: hex, selected: !dup, dup: dup });
+            var isReg = (bytes[1] === 0x43 && bytes[2] === 0x73 && bytes[3] === 0x01 && bytes[4] === 0x52);
+            learnCaptures.push({ bytes: bytes, hex: hex, selected: (!dup && isReg), dup: dup, reg: isReg });
             renderLearnList();
         }
         function renderLearnList() {
@@ -526,12 +528,20 @@
                 var hint = document.createElement('div'); hint.className = 'learn-hint';
                 hint.innerText = learnCaptures.length === 0 ? "Nyomd meg a Genón a kívánt gombot (pl. Registration). A beérkező SysEx üzenetek itt jelennek meg." : "Pipáld ki, melyik kerüljön a SysEx mezőbe (köztük 0,5 mp szünet). Ha kész, koppints a fenti gombra.";
                 box.appendChild(hint);
-                learnCaptures.forEach(function(c, i) {
+                function mkRow(c, i) {
                     var row = document.createElement('label'); row.className = 'learn-item';
                     var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = c.selected; cb.onchange = function() { c.selected = cb.checked; };
                     var sp = document.createElement('span'); sp.innerText = (i + 1) + ". SysEx · " + c.bytes.length + " bájt" + (c.dup ? " (ismétlés)" : "") + "\n" + (describeSysex(c.bytes) ? describeSysex(c.bytes) + "\n" : "") + hexDisplay(c.bytes, 14);
-                    row.appendChild(cb); row.appendChild(sp); box.appendChild(row);
-                });
+                    row.appendChild(cb); row.appendChild(sp); return row;
+                }
+                var others = [];
+                learnCaptures.forEach(function(c, i) { if (c.reg) box.appendChild(mkRow(c, i)); else others.push({ c: c, i: i }); });
+                if (others.length > 0) {
+                    var det = document.createElement('details'); det.className = 'learn-item';
+                    var sm = document.createElement('summary'); sm.innerText = "További " + others.length + " SysEx (hangszín/XG adatok) – nincs kijelölve"; det.appendChild(sm);
+                    others.forEach(function(o) { det.appendChild(mkRow(o.c, o.i)); });
+                    box.appendChild(det);
+                }
             }
         }
         function applyLearnCaptures(target) {
