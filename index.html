@@ -95,6 +95,15 @@
     .btn-action { background: none; border: none; font-size: 1.2rem; cursor: pointer; padding: 4px; }
     .transpose-panel { display: flex; align-items: center; gap: 10px; background-color: #1a1a22; padding: 5px 15px; border-radius: 6px; border: 1px solid #3e3e4f; color: #fff; margin-bottom: 10px; font-weight: bold; }
 
+    .view-pills { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
+    .view-pill { display: flex; align-items: center; gap: 3px; background: #1a1a22; border: 1px solid #3e3e4f; border-radius: 6px; padding: 6px 7px; color: #888; font-size: 0.8rem; font-weight: bold; cursor: pointer; user-select: none; }
+    .view-pill input { width: 16px; height: 16px; margin: 0; }
+    .view-pill.on { color: #2ecc71; border-color: #2ecc71; }
+    .audio-bar { display: none; align-items: center; gap: 8px; background: #121216; padding: 6px 10px; border-radius: 6px; margin-bottom: 10px; color: #fff; font-weight: bold; }
+    .audio-bar input[type=range] { flex: 1; min-width: 0; }
+    .media-switch { display: flex; gap: 6px; margin-bottom: 8px; }
+    .song-img { display: block; width: 100%; height: auto; margin-bottom: 8px; border-radius: 4px; }
+    .song-img.full { width: auto; max-width: none; }
     .song-info-bar { display: none; background-color: #121216; color: #ffcc00; padding: 6px 12px; border-radius: 6px; margin-bottom: 10px; font-weight: bold; font-size: 1rem; }
 
     .vocal-panel { display: none; position: fixed; z-index: 1500; flex-direction: column; background-color: #1e1e24; border: 2px solid #e056fd; border-radius: 8px; padding: 4px; box-shadow: 0 6px 18px rgba(0,0,0,0.55); }
@@ -146,6 +155,12 @@
         <button id="viewRepertoireBtn" class="btn-top" onclick="switchView('repertoire')">🎵 Repertoár</button>
         <button class="btn-top" style="border-color:#e056fd; color:#e056fd;" onclick="toggleVocalPanel()">🎤 Vocal</button>
         <button class="btn-top" id="midiIndicatorBtn" style="padding:10px 10px; border-color:#f1c40f;" onclick="openMidiModal()">🎹</button>
+        <div class="view-pills" id="viewPills">
+            <label class="view-pill" id="pill-text"><input type="checkbox" onchange="setViewFilter('text', this.checked)">Szöveg</label>
+            <label class="view-pill" id="pill-reg"><input type="checkbox" onchange="setViewFilter('reg', this.checked)">Regiszter</label>
+            <label class="view-pill" id="pill-img"><input type="checkbox" onchange="setViewFilter('img', this.checked)">PDF/kép</label>
+            <label class="view-pill" id="pill-mp3"><input type="checkbox" onchange="setViewFilter('mp3', this.checked)">MP3</label>
+        </div>
         <input type="text" id="songSearch" class="search-bar" placeholder="Keresés dalnév, előadó, style vagy tempó alapján..." oninput="handleSearchInput()">
         <button class="btn-top" style="border-color:#2ecc71; color:#2ecc71;" onclick="scanInternalStorage()">📂 Betöltés</button>
         <button class="btn-top" style="border-color:#3498db; color:#3498db;" onclick="openBackupModal()">💾 Mentés</button>
@@ -182,6 +197,13 @@
             </div>
 
             <div class="song-info-bar" id="songInfoBar"></div>
+            <div class="audio-bar" id="audioBar">
+                <button class="btn-top" id="audioPlayBtn" style="padding:6px 14px;" onclick="audioToggle()">▶</button>
+                <input type="range" id="audioSeek" min="0" max="1000" value="0" oninput="audioSeekTo(this.value)">
+                <span id="audioTime" style="min-width:90px;text-align:right;font-size:0.85rem;">0:00 / 0:00</span>
+                <button class="btn-top" style="padding:6px 10px;" onclick="audioStop()">⏹</button>
+                <span id="audioName" style="font-size:0.8rem;color:#ffcc00;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+            </div>
 
             <!-- DALSZÖVEG MEGJELENÍTŐ -->
             <div class="lyrics-display" id="lyricsDisplay">Válassz egy dalt a Repertoárból vagy vezéreld a Genost az oldalsó gombokkal!</div>
@@ -605,7 +627,7 @@
             else if (nIn > 0) logMidiText("… Genos→szöveg: még nincs teljes egyezés (bank + gomb kell)");
         }
         function showGenosLyricsPopup(idx) {
-            var sg = songbookSongs[idx]; if (!sg) return; genosPopupSongIdx = idx;
+            var sg = songbookSongs[idx]; if (!sg || !viewFilters.text) return; genosPopupSongIdx = idx;
             document.getElementById('genosLyricsTitle').innerText = sg.title + (sg.artist ? " – " + sg.artist : "");
             document.getElementById('genosLyricsBody').innerHTML = processLyricsWithTranspose(sg.lyrics, 0);
             document.getElementById('genosLyricsModal').style.display = 'flex';
@@ -617,7 +639,7 @@
             var data = Array.prototype.slice.call(raw); var status = data[0];
             var noise = (status === 0xFE || status === 0xF8);
             if (!noise) logMidi("←", data);
-            if (!isMidiLearning && !noise && (status === 0xF0 || sysexBuf)) { var inDone = feedSysex(data); if (inDone) registerIncomingSysex(inDone); return; }
+            if (!isMidiLearning && !noise && (status === 0xF0 || sysexBuf)) { var inDone = feedSysex(data); if (inDone && viewFilters.reg) registerIncomingSysex(inDone); return; }
             if (!isMidiLearning || noise) return;
             var lb = document.getElementById(midiLearnTarget === 'cube' ? 'cubeLearnBtn' : 'songLearnBtn');
             if (lb) lb.innerText = "💥 VÁRAKOZÁS… (utolsó jel: " + hexBytes(data) + ") – koppints ide, ha kész";
@@ -756,8 +778,7 @@
             var displayVal = globalTransposeOffset > 0 ? "+" + globalTransposeOffset : globalTransposeOffset;
             document.getElementById('transposeDisplayVal').innerText = displayVal;
             if (currentSelectedSongIndex > -1 && songbookSongs[currentSelectedSongIndex]) {
-                var rawLyrics = songbookSongs[currentSelectedSongIndex].lyrics;
-                document.getElementById('lyricsDisplay').innerHTML = processLyricsWithTranspose(rawLyrics, globalTransposeOffset);
+                renderSongBody();
             }
         }
 
@@ -893,7 +914,7 @@
                 if (st.granted) {
                     var first = !folderSaveEnabled;
                     var go = (first && localDataIsEmpty()) ? restoreFromFolder(true) : Promise.resolve(false);
-                    go.then(function() { folderSaveEnabled = true; autoImportFolder(pl); if (first) scheduleFolderSave(); });
+                    go.then(function() { folderSaveEnabled = true; autoImportFolder(pl); refreshMediaIndex(); if (first) scheduleFolderSave(); });
                     return;
                 }
                 if (askPermission === true && confirm("A dalok mappájához (Documents/GenosSongbook) az appnak engedély kell az „Összes fájl elérésére”.\n\nA következő képernyőn kapcsold be az engedélyt, majd lépj vissza az appba.")) { pl.requestAccess(); }
@@ -1019,14 +1040,115 @@
             document.getElementById('repertoireListContainer').style.display = "block"; refreshRepertoire();
         }
 
+
+        // ===== Nézet-szűrők (globális): Szöveg / Regiszter / PDF-kép / MP3 =====
+        var viewFilters = { text: true, reg: true, img: true, mp3: true };
+        try { var vf = JSON.parse(localStorage.getItem('genosViewFilters') || 'null'); if (vf) { for (var k in viewFilters) { if (typeof vf[k] === 'boolean') viewFilters[k] = vf[k]; } } } catch (e) {}
+        function syncViewPills() {
+            ['text', 'reg', 'img', 'mp3'].forEach(function(k) {
+                var el = document.getElementById('pill-' + k); if (!el) return;
+                el.classList.toggle('on', !!viewFilters[k]); el.querySelector('input').checked = !!viewFilters[k];
+            });
+        }
+        function setViewFilter(k, v) {
+            viewFilters[k] = !!v; try { localStorage.setItem('genosViewFilters', JSON.stringify(viewFilters)); } catch (e) {}
+            syncViewPills();
+            if (currentSelectedSongIndex > -1) { renderSongBody(); setupAudioForSong(songbookSongs[currentSelectedSongIndex]); }
+        }
+        // ===== Média (mp3 / kép) a dal neve szerint a Documents/GenosSongbook mappából =====
+        var mediaIndex = {}; var mediaUrls = {}; var songShowMode = 'auto';
+        function baseKey(n) { return String(n).replace(/\.[^/.]+$/, "").toLowerCase().trim(); }
+        function refreshMediaIndex() {
+            var pl = nativeFolderPlugin(); if (!pl || !pl.scanMedia) return Promise.resolve();
+            return pl.scanMedia().then(function(res) {
+                var idx = {};
+                (res.items || []).forEach(function(it) {
+                    var low = it.name.toLowerCase(); var full = baseKey(it.name);
+                    function ent(k) { return idx[k] = idx[k] || { mp3: null, imgs: [], pdf: null }; }
+                    if (/\.mp3$/.test(low)) ent(full).mp3 = it.rel;
+                    else if (/\.pdf$/.test(low)) ent(full).pdf = it.rel;
+                    else {
+                        ent(full).imgs.push(it.rel);
+                        var stripped = full.replace(/[ _-]*\(?\d+\)?$/, "");
+                        if (stripped && stripped !== full) ent(stripped).imgs.push(it.rel);
+                    }
+                });
+                Object.keys(idx).forEach(function(k) { idx[k].imgs.sort(); });
+                mediaIndex = idx;
+                if (currentSelectedSongIndex > -1) { var sg = songbookSongs[currentSelectedSongIndex]; if (sg) { renderSongBody(); setupAudioForSong(sg); } }
+            }).catch(function() {});
+        }
+        function songMedia(song) { return (song && mediaIndex[baseKey(song.title)]) || { mp3: null, imgs: [], pdf: null }; }
+        function mediaUrl(rel, mime) {
+            if (mediaUrls[rel]) return Promise.resolve(mediaUrls[rel]);
+            var pl = nativeFolderPlugin(); if (!pl) return Promise.reject();
+            return pl.readBase64({ path: rel }).then(function(x) {
+                if (!x || !x.exists) throw new Error('nincs');
+                var bin = atob(x.data); var u8 = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+                var url = URL.createObjectURL(new Blob([u8], { type: mime })); mediaUrls[rel] = url; return url;
+            });
+        }
+        function imgMime(rel) { var l = rel.toLowerCase(); return /\.png$/.test(l) ? 'image/png' : /\.webp$/.test(l) ? 'image/webp' : /\.gif$/.test(l) ? 'image/gif' : 'image/jpeg'; }
+        function mediaForView(song) { var m = songMedia(song); return (viewFilters.img && m.imgs.length) ? m : null; }
+        // A szöveg helyén: kép (ha van és a PDF/kép pipa be van), különben szöveg (ha a Szöveg pipa be van)
+        function renderSongBody() {
+            var box = document.getElementById('lyricsDisplay'); var song = songbookSongs[currentSelectedSongIndex]; if (!song) return;
+            var m = mediaForView(song); var hasText = viewFilters.text; var showImg = !!m && (!hasText || songShowMode !== 'text');
+            if (showImg) {
+                box.style.whiteSpace = 'normal';
+                var html = '';
+                if (hasText) html += '<div class="media-switch"><button class="btn-top" onclick="songShowMode=\'text\';renderSongBody()">📄 Szöveg</button></div>';
+                box.innerHTML = html + '<div id="songImgs">Kép betöltése…</div>';
+                var wrap = function() { return document.getElementById('songImgs'); };
+                Promise.all(m.imgs.map(function(r) { return mediaUrl(r, imgMime(r)); })).then(function(urls) {
+                    if (currentSelectedSongIndex < 0 || songbookSongs[currentSelectedSongIndex] !== song || !wrap()) return;
+                    wrap().innerHTML = urls.map(function(u) { return '<img class="song-img" src="' + u + '" onclick="this.classList.toggle(\'full\')">'; }).join('');
+                }).catch(function() { if (wrap()) wrap().innerText = "A kép nem tölthető be."; });
+            } else if (hasText) {
+                box.style.whiteSpace = ''; var pre = '';
+                if (m) pre = '<div class="media-switch"><button class="btn-top" onclick="songShowMode=\'img\';renderSongBody()">🖼 Kép</button></div>';
+                box.innerHTML = pre + processLyricsWithTranspose(song.lyrics, globalTransposeOffset);
+            } else {
+                box.style.whiteSpace = ''; box.innerText = "(Szöveg kikapcsolva – pipáld be a Szöveg vagy PDF/kép jelölőt.)";
+            }
+        }
+        // ===== MP3 lejátszó =====
+        var audioEl = null;
+        function fmtT(t) { if (!isFinite(t)) t = 0; t = Math.floor(t); return Math.floor(t / 60) + ":" + ('0' + (t % 60)).slice(-2); }
+        function audioStop() {
+            if (audioEl) { try { audioEl.pause(); } catch (e) {} audioEl = null; }
+            var b = document.getElementById('audioBar'); if (b) b.style.display = 'none';
+            var pb = document.getElementById('audioPlayBtn'); if (pb) pb.innerText = '▶';
+        }
+        function setupAudioForSong(song) {
+            audioStop();
+            var m = songMedia(song); if (!viewFilters.mp3 || !m.mp3) return;
+            var bar = document.getElementById('audioBar'); bar.style.display = 'flex';
+            document.getElementById('audioName').innerText = m.mp3.split('/').pop();
+            document.getElementById('audioTime').innerText = "Betöltés…";
+            var rel = m.mp3;
+            mediaUrl(rel, 'audio/mpeg').then(function(url) {
+                var cur = songbookSongs[currentSelectedSongIndex]; if (!cur || songMedia(cur).mp3 !== rel || !viewFilters.mp3) return;
+                var a = new Audio(url); audioEl = a;
+                a.addEventListener('timeupdate', function() { document.getElementById('audioSeek').value = a.duration ? Math.round(1000 * a.currentTime / a.duration) : 0; document.getElementById('audioTime').innerText = fmtT(a.currentTime) + " / " + fmtT(a.duration); });
+                a.addEventListener('loadedmetadata', function() { document.getElementById('audioTime').innerText = "0:00 / " + fmtT(a.duration); });
+                a.addEventListener('ended', function() { document.getElementById('audioPlayBtn').innerText = '▶'; });
+            }).catch(function() { document.getElementById('audioTime').innerText = "Nem tölthető be"; });
+        }
+        function audioToggle() { if (!audioEl) return; if (audioEl.paused) { audioEl.play(); document.getElementById('audioPlayBtn').innerText = '⏸'; } else { audioEl.pause(); document.getElementById('audioPlayBtn').innerText = '▶'; } }
+        function audioSeekTo(v) { if (audioEl && audioEl.duration) audioEl.currentTime = audioEl.duration * v / 1000; }
+        window.addEventListener('load', function() { syncViewPills(); });
+
         function loadAndTriggerSong(index) {
             currentSelectedSongIndex = index; var song = songbookSongs[index]; if (!song) return;
             globalTransposeOffset = 0; document.getElementById('transposeDisplayVal').innerText = "0";
-            document.getElementById('lyricsDisplay').innerHTML = processLyricsWithTranspose(song.lyrics, globalTransposeOffset);
+            songShowMode = 'auto'; renderSongBody(); setupAudioForSong(song);
             switchView('lyrics'); document.getElementById('songSearch').value = "";
-            if (song.msb !== "" || song.lsb !== "" || song.pc !== "") sendBankAndProgramChange(song.msb, song.lsb, song.pc);
-            if (song.sysex) sendSysexString(song.sysex);
-            setActiveTempo(parseInt(song.tempo, 10)); if (song.tempo && tempoData[song.tempo]) sendSysexString(tempoData[song.tempo]);
+            if (viewFilters.reg) {
+                if (song.msb !== "" || song.lsb !== "" || song.pc !== "") sendBankAndProgramChange(song.msb, song.lsb, song.pc);
+                if (song.sysex) sendSysexString(song.sysex);
+                setActiveTempo(parseInt(song.tempo, 10)); if (song.tempo && tempoData[song.tempo]) sendSysexString(tempoData[song.tempo]);
+            }
         }
 
         function openSongEditModal(index) { currentEditSongIndex = index; var song = songbookSongs[index]; document.getElementById('editSongTitle').value = song.title; document.getElementById('editSongArtist').value = song.artist || ""; document.getElementById('editSongStyle').value = song.style || ""; document.getElementById('editSongGenosStyle').value = song.genosStyle || ""; document.getElementById('editSongTempo').value = song.tempo || ""; document.getElementById('editSongMsb').value = song.msb || ""; document.getElementById('editSongLsb').value = song.lsb || ""; document.getElementById('editSongPc').value = song.pc || ""; document.getElementById('editSongSysex').value = song.sysex || ""; document.getElementById('songEditModal').style.display = 'flex'; }

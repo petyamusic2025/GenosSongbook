@@ -174,4 +174,43 @@ public class SongFolderPlugin extends Plugin {
         o.put("data", Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP));
         items.put(o);
     }
+
+    @PluginMethod
+    public void scanMedia(PluginCall call) {
+        if (!granted()) { call.reject("Nincs hozzáférés a fájlokhoz."); return; }
+        try {
+            File root = root();
+            JSArray items = new JSArray();
+            File[] top = root.listFiles();
+            if (top != null) {
+                Arrays.sort(top);
+                for (File f : top) {
+                    if (f.isDirectory()) {
+                        if (f.getName().equals("icons")) continue;
+                        File[] sub = f.listFiles();
+                        if (sub == null) continue;
+                        Arrays.sort(sub);
+                        for (File s : sub) addIfMedia(items, s, f.getName() + "/" + s.getName());
+                    } else {
+                        addIfMedia(items, f, f.getName());
+                    }
+                }
+            }
+            JSObject r = new JSObject();
+            r.put("items", items);
+            call.resolve(r);
+        } catch (Exception e) {
+            call.reject("Olvasási hiba: " + e.getMessage());
+        }
+    }
+
+    private void addIfMedia(JSArray items, File f, String rel) throws Exception {
+        if (!f.isFile()) return;
+        String n = f.getName().toLowerCase();
+        if (!(n.endsWith(".mp3") || n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".png") || n.endsWith(".webp") || n.endsWith(".gif") || n.endsWith(".pdf"))) return;
+        JSObject o = new JSObject();
+        o.put("name", f.getName());
+        o.put("rel", rel);
+        items.put(o);
+    }
 }
