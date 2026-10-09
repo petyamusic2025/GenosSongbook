@@ -249,6 +249,12 @@
             <h3 id="cubeEditTitle">MIDI Kocka Beállításai</h3>
             <button id="cubeLearnBtn" class="btn-learn" onclick="toggleMidiLearn('cube')">🔵 MIDI Tanulás (Auto-Capture)</button>
             <div id="learnList_cube" class="learn-list"></div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 2px;">
+                <button type="button" class="btn" style="background:#2980b9;color:#fff;padding:6px 10px;" onclick="quickFillCube('both')">⚡ Genos állapot: bank + gomb</button>
+                <button type="button" class="btn" style="background:#2980b9;color:#fff;padding:6px 10px;" onclick="quickFillCube('bank')">⚡ Csak bank</button>
+                <button type="button" class="btn" style="background:#2980b9;color:#fff;padding:6px 10px;" onclick="quickFillCube('button')">⚡ Csak gomb</button>
+            </div>
+            <div id="cubeQuickInfo" style="font-size:12px;color:#ffcc00;margin-bottom:6px;"></div>
             <div class="form-group"><label>Gomb neve (Ha nincs kép):</label><input type="text" id="editCubeName"></div>
             <div class="form-group">
                 <label>Ikon betöltése (Teljesen fedi a gombot):</label>
@@ -602,6 +608,24 @@
             var parts = []; if (genosState.bank) parts.push(hexFull(genosState.bank));
             if (genosState.bank && genosState.button !== null) { parts.push("PAUSE 500"); parts.push(hexFull([0xF0, 0x43, 0x73, 0x01, 0x52, 0x25, 0x11, 0x00, 0x02, 0x00, genosState.button, 0xF7])); }
             return parts.join("\n");
+        }
+        // Gyors MIDI mentés MIDI-kockához: a Genos aktuális bankját / gombját beírja a SysEx mezőbe
+        function quickFillCube(mode) {
+            if (midiState === 'ready') queryGenosState();
+            setTimeout(function() {
+                var parts = [];
+                if (mode !== 'button') { if (!genosState.bank) { showToast("Még nincs bank – ellenőrizd a MIDI kapcsolatot (🎹), vagy válassz ki egy regisztrációt a Genosón."); return; } parts.push(hexFull(genosState.bank)); }
+                if (mode !== 'bank') {
+                    if (genosState.button === null) { if (mode === 'button') { showToast("A gomb még ismeretlen – nyomd meg egyszer a gombot a Genosón."); return; } }
+                    else { if (parts.length) parts.push("PAUSE 500"); parts.push(hexFull([0xF0, 0x43, 0x73, 0x01, 0x52, 0x25, 0x11, 0x00, 0x02, 0x00, genosState.button, 0xF7])); }
+                }
+                var f = document.getElementById('editCubeSysex');
+                if (f.value.trim() && !confirm("Felülírod a kocka SysEx mezőjét?")) return;
+                f.value = parts.join("\n");
+                var bn = genosState.bank ? describeSysex(genosState.bank).replace('Registration bank: ', '') : "-";
+                document.getElementById('cubeQuickInfo').innerText = "Beírva – bank: " + bn + " · gomb: " + (genosState.button !== null ? genosState.button + 1 : "ismeretlen");
+                showToast("Genos állapot beírva a SysEx mezőbe.");
+            }, 450);
         }
         function toggleQuickPanel(on) {
             var p = document.getElementById('quickPanel'); p.style.display = on ? 'block' : 'none';
