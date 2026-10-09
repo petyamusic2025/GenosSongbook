@@ -3,6 +3,7 @@ package hu.petya.genossongbook;
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -212,5 +213,70 @@ public class SongFolderPlugin extends Plugin {
         o.put("name", f.getName());
         o.put("rel", rel);
         items.put(o);
+    }
+
+    // ===== Natív MP3 lejátszás (nagy fájlokhoz is, a WebView memóriája nélkül) =====
+    private MediaPlayer mp = null;
+    private boolean mpEnded = false;
+
+    private synchronized void releasePlayer() {
+        if (mp != null) { try { mp.stop(); } catch (Exception e) {} try { mp.release(); } catch (Exception e) {} mp = null; }
+        mpEnded = false;
+    }
+
+    @PluginMethod
+    public synchronized void audioOpen(PluginCall call) {
+        try {
+            if (!granted()) { call.reject("Nincs hozzáférés."); return; }
+            File f = safe(call.getString("path"));
+            if (!f.isFile()) { call.reject("Nincs ilyen fájl."); return; }
+            releasePlayer();
+            MediaPlayer m = new MediaPlayer();
+            m.setDataSource(f.getAbsolutePath());
+            m.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+                @Override public void onCompletion(MediaPlayer x) { mpEnded = true; }
+            });
+            m.prepare();
+            mp = m;
+            JSObject r = new JSObject();
+            r.put("duration", m.getDuration());
+            call.resolve(r);
+        } catch (Exception e) { releasePlayer(); call.reject("Lejátszási hiba: " + e.getMessage()); }
+    }
+
+    @PluginMethod
+    public synchronized void audioPlay(PluginCall call) {
+        try { if (mp != null) { if (mpEnded) { mp.seekTo(0); mpEnded = false; } mp.start(); } call.resolve(); } catch (Exception e) { call.reject(e.getMessage()); }
+    }
+
+    @PluginMethod
+    public synchronized void audioPause(PluginCall call) {
+        try { if (mp != null && mp.isPlaying()) mp.pause(); call.resolve(); } catch (Exception e) { call.reject(e.getMessage()); }
+    }
+
+    @PluginMethod
+    public synchronized void audioSeek(PluginCall call) {
+        try { if (mp != null) { Integer ms = call.getInt("ms", 0); mp.seekTo(ms); mpEnded = false; } call.resolve(); } catch (Exception e) { call.reject(e.getMessage()); }
+    }
+
+    @PluginMethod
+    public synchronized void audioStatus(PluginCall call) {
+        try {
+            JSObject r = new JSObject();
+            if (mp == null) { r.put("open", false); r.put("playing", false); r.put("pos", 0); r.put("duration", 0); }
+            else { r.put("open", true); r.put("playing", mp.isPlaying()); r.put("pos", mp.getCurrentPosition()); r.put("duration", mp.getDuration()); r.put("ended", mpEnded); }
+            call.resolve(r);
+        } catch (Exception e) { call.reject(e.getMessage()); }
+    }
+
+    @PluginMethod
+    public synchronized void audioStop(PluginCall call) {
+        releasePlayer(); call.resolve();
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        releasePlayer();
+        super.handleOnDestroy();
     }
 }
