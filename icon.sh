@@ -1,4 +1,11 @@
 #!/bin/sh
+# Fix aláírókulcs: a debug.keystore-t a build elé tesszük, hogy minden verzió ugyanazzal a kulccsal készüljön
+# (így az új APK a régi fölé telepíthető). A cap sync után, a gradle build előtt fut le.
+if [ -f debug.keystore ]; then
+  mkdir -p "$HOME/.android" && cp debug.keystore "$HOME/.android/debug.keystore" && echo "Fix alairo kulcs beallitva"
+else
+  echo "FIGYELEM: nincs debug.keystore a repoban"
+fi
 # Ha van icon.png, abból készít Android app-ikont (a cap add/sync után fut le)
 if [ -f icon.png ]; then
   mkdir -p assets

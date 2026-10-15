@@ -139,22 +139,21 @@ public class SongFolderPlugin extends Plugin {
             File root = root();
             for (String d : new String[]{"Táncdal", "Csárdás", "Rock", "Szerb"}) new File(root, d).mkdirs();
             JSArray items = new JSArray();
+            JSArray dirs = new JSArray();
             File[] top = root.listFiles();
             if (top != null) {
                 Arrays.sort(top);
                 for (File f : top) {
                     if (f.isDirectory()) {
-                        File[] sub = f.listFiles();
-                        if (sub == null) continue;
-                        Arrays.sort(sub);
-                        for (File s : sub) addIfTxt(items, s, f.getName());
-                    } else {
-                        addIfTxt(items, f, "");
-                    }
+                        walkTxt(items, f, f.getName(), "", 0);
+                        File[] subs = f.listFiles();
+                        if (subs != null) { Arrays.sort(subs); for (File sd : subs) if (sd.isDirectory()) dirs.put(f.getName() + "/" + sd.getName()); }
+                    } else addIfTxt(items, f, "", "");
                 }
             }
             JSObject r = new JSObject();
             r.put("items", items);
+            r.put("dirs", dirs);
             r.put("path", root.getAbsolutePath());
             call.resolve(r);
         } catch (Exception e) {
@@ -162,7 +161,30 @@ public class SongFolderPlugin extends Plugin {
         }
     }
 
-    private void addIfTxt(JSArray items, File f, String category) throws Exception {
+    // Almappák (pl. Táncdal/Disco/Beguine) is: kategória = legfelső mappa, alkategória = az alatta lévő első mappa
+    private void walkTxt(JSArray items, File dir, String category, String sub, int depth) throws Exception {
+        if (depth > 8) return;
+        File[] list = dir.listFiles();
+        if (list == null) return;
+        Arrays.sort(list);
+        for (File s : list) {
+            if (s.isDirectory()) walkTxt(items, s, category, depth == 0 ? s.getName() : sub, depth + 1);
+            else addIfTxt(items, s, category, sub);
+        }
+    }
+
+    private void walkMedia(JSArray items, File dir, String rel, int depth) throws Exception {
+        if (depth > 8) return;
+        File[] sub = dir.listFiles();
+        if (sub == null) return;
+        Arrays.sort(sub);
+        for (File s : sub) {
+            if (s.isDirectory()) walkMedia(items, s, rel + "/" + s.getName(), depth + 1);
+            else addIfMedia(items, s, rel + "/" + s.getName());
+        }
+    }
+
+    private void addIfTxt(JSArray items, File f, String category, String sub) throws Exception {
         if (!f.isFile() || !f.getName().toLowerCase().endsWith(".txt")) return;
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         FileInputStream in = new FileInputStream(f);
@@ -172,8 +194,45 @@ public class SongFolderPlugin extends Plugin {
         JSObject o = new JSObject();
         o.put("name", f.getName());
         o.put("category", category);
+        o.put("sub", sub);
+        o.put("file", (category.length() > 0 ? category + "/" : "") + (sub.length() > 0 ? sub + "/" : "") + f.getName());
         o.put("data", Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP));
         items.put(o);
+    }
+
+    @PluginMethod
+    public void makeDir(PluginCall call) {
+        if (!granted()) { call.reject("Nincs hozzáférés a fájlokhoz."); return; }
+        try { File d = safe(call.getString("path")); d.mkdirs(); call.resolve(); }
+        catch (Exception e) { call.reject(e.getMessage()); }
+    }
+
+    // Fájl vagy mappa áthelyezése/átnevezése a GenosSongbook mappán belül; nem ír felül semmit
+    @PluginMethod
+    public void moveFile(PluginCall call) {
+        if (!granted()) { call.reject("Nincs hozzáférés a fájlokhoz."); return; }
+        try {
+            File from = safe(call.getString("from")); File to = safe(call.getString("to"));
+            if (!from.exists()) { call.reject("Nincs ilyen fájl: " + call.getString("from")); return; }
+            if (to.exists()) { call.reject("Már van ilyen: " + call.getString("to")); return; }
+            to.getParentFile().mkdirs();
+            if (!from.renameTo(to)) { call.reject("Az áthelyezés nem sikerült"); return; }
+            call.resolve();
+        } catch (Exception e) { call.reject(e.getMessage()); }
+    }
+
+    // Csak üres mappát töröl
+    @PluginMethod
+    public void removeDir(PluginCall call) {
+        if (!granted()) { call.reject("Nincs hozzáférés a fájlokhoz."); return; }
+        try {
+            File d = safe(call.getString("path"));
+            JSObject r = new JSObject();
+            String[] l = d.list();
+            boolean ok = d.isDirectory() && l != null && l.length == 0 && d.delete();
+            r.put("removed", ok);
+            call.resolve(r);
+        } catch (Exception e) { call.reject(e.getMessage()); }
     }
 
     @PluginMethod
@@ -188,10 +247,7 @@ public class SongFolderPlugin extends Plugin {
                 for (File f : top) {
                     if (f.isDirectory()) {
                         if (f.getName().equals("icons")) continue;
-                        File[] sub = f.listFiles();
-                        if (sub == null) continue;
-                        Arrays.sort(sub);
-                        for (File s : sub) addIfMedia(items, s, f.getName() + "/" + s.getName());
+                        walkMedia(items, f, f.getName(), 0);
                     } else {
                         addIfMedia(items, f, f.getName());
                     }
