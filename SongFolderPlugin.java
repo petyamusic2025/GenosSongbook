@@ -3,7 +3,12 @@ package hu.petya.genossongbook;
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.pdf.PdfRenderer;
 import android.media.MediaPlayer;
+import android.os.ParcelFileDescriptor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -269,6 +274,52 @@ public class SongFolderPlugin extends Plugin {
         o.put("name", f.getName());
         o.put("rel", rel);
         items.put(o);
+    }
+
+    // ===== PDF megjelenítés (Android PdfRenderer): oldalszám + egy oldal JPEG-ként =====
+    @PluginMethod
+    public void pdfInfo(PluginCall call) {
+        if (!granted()) { call.reject("Nincs hozzáférés a fájlokhoz."); return; }
+        try {
+            File f = safe(call.getString("path"));
+            ParcelFileDescriptor fd = ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY);
+            PdfRenderer r = new PdfRenderer(fd);
+            JSObject o = new JSObject(); o.put("pages", r.getPageCount());
+            r.close(); fd.close();
+            call.resolve(o);
+        } catch (Exception e) { call.reject("PDF hiba: " + e.getMessage()); }
+    }
+
+    @PluginMethod
+    public void pdfPage(PluginCall call) {
+        if (!granted()) { call.reject("Nincs hozzáférés a fájlokhoz."); return; }
+        PdfRenderer r = null; ParcelFileDescriptor fd = null; PdfRenderer.Page page = null; Bitmap bmp = null;
+        try {
+            File f = safe(call.getString("path"));
+            Integer idx = call.getInt("index", 0); Integer wReq = call.getInt("width", 1400);
+            int w = Math.max(400, Math.min(wReq, 2200));
+            fd = ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY);
+            r = new PdfRenderer(fd);
+            if (idx < 0 || idx >= r.getPageCount()) { call.reject("Nincs ilyen oldal"); return; }
+            page = r.openPage(idx);
+            int h = Math.max(1, Math.round((float) w * page.getHeight() / page.getWidth()));
+            bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            new Canvas(bmp).drawColor(Color.WHITE);
+            page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            bmp.compress(Bitmap.CompressFormat.JPEG, 88, bos);
+            JSObject o = new JSObject();
+            o.put("data", Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP));
+            o.put("pages", r.getPageCount());
+            call.resolve(o);
+        } catch (Throwable e) {
+            call.reject("PDF hiba: " + e.getMessage());
+        } finally {
+            try { if (page != null) page.close(); } catch (Exception e) {}
+            try { if (r != null) r.close(); } catch (Exception e) {}
+            try { if (fd != null) fd.close(); } catch (Exception e) {}
+            if (bmp != null) bmp.recycle();
+        }
     }
 
     // ===== Natív MP3 lejátszás (nagy fájlokhoz is, a WebView memóriája nélkül) =====

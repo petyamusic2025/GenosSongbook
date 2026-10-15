@@ -1020,7 +1020,7 @@
         function refreshRepertoire() {
             var query = document.getElementById('songSearch').value.toLowerCase().trim();
             renderRepertoireList(songbookSongs.filter(function(s) { return genreMatches(s, activeGenreFilter) && (!activeSubFilter || (s.sub || '') === activeSubFilter) && songMatchesQuery(s, query); }));
-            renderSubBar();
+            renderSubBar(); updateGenreMarks();
         }
 
         // ===== Alkategóriák (almappák) =====
@@ -1046,14 +1046,22 @@
             if (g !== 'all' && activeGenreFilter === g && currentViewMode === 'repertoire') { subBarOpen = !subBarOpen; renderSubBar(); return; }
             activeSubFilter = ''; subBarOpen = false; filterByGenre(g);
         }
+        function updateGenreMarks() {
+            CATS.forEach(function(c) {
+                var el = document.getElementById('genre-' + c.toLowerCase().replace(/á/g, 'a')); if (!el) return;
+                var has = subList(c).length > 0; var open = subBarOpen && activeGenreFilter === c.toLowerCase();
+                el.innerText = c + (has ? (open ? ' ▴' : ' ▾') : '');
+            });
+        }
         function renderSubBar() {
             var bar = document.getElementById('subFilterBar'); if (!bar) return;
-            if (!subBarOpen || activeGenreFilter === 'all') { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+            if (!subBarOpen || activeGenreFilter === 'all') { bar.style.display = 'none'; bar.innerHTML = ''; updateGenreMarks(); return; }
             var cat = activeGenreFilter.charAt(0).toUpperCase() + activeGenreFilter.slice(1); var subs = subList(cat);
             bar.innerHTML = ''; bar.style.display = 'flex';
             var mk = function(label, val) { var b = document.createElement('button'); b.className = 'btn-sub' + (activeSubFilter === val ? ' active-sub' : ''); b.innerText = label; b.onclick = function() { activeSubFilter = val; refreshRepertoire(); }; bar.appendChild(b); };
             mk('Összes', '');
             subs.forEach(function(n) { mk(n, n); });
+            updateGenreMarks();
             if (!subs.length) { var h = document.createElement('div'); h.className = 'sub-hint'; h.innerText = 'Nincs alkategória. Nyomd hosszan a kategória gombját a létrehozáshoz.'; bar.appendChild(h); }
         }
         (function() {
@@ -1062,6 +1070,7 @@
                 var clear = function() { if (t) { clearTimeout(t); t = null; } };
                 el.addEventListener('pointerdown', function() { clear(); t = setTimeout(function() { t = null; lpFired = true; openCatEditor(CATS[i]); }, 600); });
                 ['pointerup', 'pointerleave', 'pointercancel'].forEach(function(ev) { el.addEventListener(ev, clear); });
+                el.addEventListener('pointerup', function() { if (lpFired) setTimeout(function() { lpFired = false; }, 350); });
                 el.addEventListener('contextmenu', function(e) { e.preventDefault(); });
             });
         })();
@@ -1523,9 +1532,29 @@
                 var url = URL.createObjectURL(new Blob([u8], { type: mime })); mediaUrls[rel] = url; return url;
             });
         }
+        // PDF oldalak megjelenítése a képek mellett/helyett (natív PdfRenderer), oldalanként, gyorsítótárral
+        var pdfPageUrls = {};
+        function renderPdfPages(rel, holder, song) {
+            var pl = nativeFolderPlugin();
+            if (!pl || !pl.pdfPage) { holder.innerHTML = '<div class="sub-hint" style="color:#121216">A PDF megjelenítéséhez a telepített appban és frissített SongFolderPlugin.java kell.</div>'; return; }
+            var alive = function() { return currentSelectedSongIndex > -1 && songbookSongs[currentSelectedSongIndex] === song && holder.isConnected; };
+            var w = Math.min(1800, Math.max(900, Math.round((window.innerWidth || 900) * (window.devicePixelRatio || 1))));
+            var addImg = function(u, i) { var im = document.createElement('img'); im.className = 'song-img'; im.src = u; im.onclick = function() { im.classList.toggle('full'); }; holder.appendChild(im); };
+            var next = function(i, total) {
+                if (!alive() || (total !== null && i >= total) || i >= 40) return;
+                var key = rel + '#' + w + '#' + i;
+                if (pdfPageUrls[key]) { addImg(pdfPageUrls[key], i); return next(i + 1, total); }
+                pl.pdfPage({ path: rel, index: i, width: w }).then(function(x) {
+                    var bin = atob(x.data); var u8 = new Uint8Array(bin.length); for (var k = 0; k < bin.length; k++) u8[k] = bin.charCodeAt(k);
+                    var url = URL.createObjectURL(new Blob([u8], { type: 'image/jpeg' })); pdfPageUrls[key] = url;
+                    if (!alive()) return; addImg(url, i); next(i + 1, x.pages);
+                }).catch(function(e) { if (alive() && i === 0) holder.innerHTML = '<div class="sub-hint" style="color:#121216">A PDF nem nyitható meg: ' + ((e && e.message) || e) + '</div>'; });
+            };
+            holder.innerHTML = ''; next(0, null);
+        }
         function imgFallback(el) { if (el.dataset.fb) return; el.dataset.fb = '1'; var rel = el.dataset.rel; mediaUrl(rel, imgMime(rel), true).then(function(u) { el.src = u; }).catch(function() {}); }
         function imgMime(rel) { var l = rel.toLowerCase(); return /\.png$/.test(l) ? 'image/png' : /\.webp$/.test(l) ? 'image/webp' : /\.gif$/.test(l) ? 'image/gif' : 'image/jpeg'; }
-        function mediaForView(song) { var m = songMedia(song); return (viewFilters.img && m.imgs.length) ? m : null; }
+        function mediaForView(song) { var m = songMedia(song); return (viewFilters.img && (m.imgs.length || m.pdf)) ? m : null; }
         // A szöveg helyén: kép (ha van és a PDF/kép pipa be van), különben szöveg (ha a Szöveg pipa be van)
         function renderSongBody() {
             updateSongTools();
@@ -1540,6 +1569,7 @@
                 Promise.all(m.imgs.map(function(r) { return mediaUrl(r, imgMime(r)); })).then(function(urls) {
                     if (currentSelectedSongIndex < 0 || songbookSongs[currentSelectedSongIndex] !== song || !wrap()) return;
                     wrap().innerHTML = urls.map(function(u, i) { return '<img class="song-img" data-rel="' + m.imgs[i].replace(/"/g, '&quot;') + '" src="' + u + '" onclick="this.classList.toggle(\'full\')" onerror="imgFallback(this)">'; }).join('');
+                    if (m.pdf) { var holder = document.createElement('div'); wrap().appendChild(holder); renderPdfPages(m.pdf, holder, song); }
                 }).catch(function() { if (wrap()) wrap().innerText = "A kép nem tölthető be."; });
             } else if (hasText) {
                 box.style.whiteSpace = ''; var pre = '';
