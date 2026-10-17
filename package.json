@@ -7,7 +7,10 @@
   },
   "dependencies": {
     "@capacitor/android": "6.1.2",
-    "@capacitor/core": "6.1.2"
+    "@capacitor/core": "6.1.2",
+    "cordova-plugin-websocket-server": "^1.6.0",
+    "cordova-plugin-webserver": "^1.0.4",
+    "cordova-plugin-zeroconf": "^1.4.2"
   },
   "devDependencies": {
     "@capacitor/cli": "6.1.2"
