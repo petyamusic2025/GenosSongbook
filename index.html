@@ -1841,6 +1841,7 @@
                     <div class="bl-hint">Androidos és windowsos tagok: a Banda Szöveg appban a „Csatlakozom” alatt megjelenik a neved.<br>iPhone: olvassa be a kamerával:</div>
                     <div class="bl-qr" id="blQr"></div>
                     <div class="bl-url" id="blUrl">…</div>
+                    <div class="bl-hint" id="blWebStatus" style="text-align:center;">iPhone-oldal: indul…</div>
                 </div>
                 <div class="bl-hint" style="margin-top:10px;">Bent vannak:</div>
                 <div class="bl-mem" id="blMembers"></div>
@@ -4164,10 +4165,22 @@ var qrcode = function() {
         function toast(m) { try { showToast(m); } catch (e) {} }
         function lsGet(k, d) { try { var v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } }
         function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+        // jól látható felugró üzenet (koppintásra eltűnik)
+        function bandaNote(text, big) {
+            var d = document.createElement('div');
+            d.textContent = text;
+            d.style.cssText = 'position:fixed;top:70px;left:50%;transform:translateX(-50%);z-index:5000;max-width:90%;' +
+                'background:#ffcc00;color:#121216;border-radius:12px;padding:12px 18px;box-shadow:0 8px 28px #000c;cursor:pointer;' +
+                'font-weight:bold;white-space:pre-wrap;text-align:center;font-size:' + (big ? '30px' : '18px');
+            d.onclick = function () { d.remove(); };
+            document.body.appendChild(d);
+            setTimeout(function () { d.remove(); }, big ? 12000 : 20000);
+            try { if (navigator.vibrate) navigator.vibrate(big ? [200, 100, 200] : 150); } catch (e) {}
+        }
         function plugins() { return (window.cordova && cordova.plugins) || {}; }
 
         /* ---- a szerver logikája (ugyanaz, mint a Banda Szöveg appban) ---- */
-        function Hub(sendFn) { this.send = sendFn; this.members = {}; this.admin = null; this.doc = null; this.scroll = 0; }
+        function Hub(sendFn) { this.send = sendFn; this.members = {}; this.admin = null; this.doc = null; this.scroll = 0; this.seq = 0; this.keep = false; this.key = ''; }
         Hub.prototype.list = function () { var m = this.members; return Object.keys(m).map(function (id) { return { id: id, name: m[id] }; }); };
         Hub.prototype.broadcast = function (msg, except) { var s = JSON.stringify(msg), self = this; Object.keys(this.members).forEach(function (id) { if (id !== except) self.send(id, s); }); };
         Hub.prototype.sendMembers = function () { this.broadcast({ t: 'members', list: this.list(), admin: this.admin }); };
@@ -4178,19 +4191,29 @@ var qrcode = function() {
                 case 'hello':
                     this.members[id] = String(m.name || 'Tag').slice(0, 24);
                     if (!this.admin && m.wantAdmin) this.admin = id;
-                    this.send(id, JSON.stringify({ t: 'welcome', id: id, admin: this.admin, doc: this.doc, scroll: this.scroll, list: this.list() }));
+                    this.send(id, JSON.stringify({ t: 'welcome', id: id, admin: this.admin, doc: this.doc, scroll: this.scroll, list: this.list(), key: this.key }));
                     this.sendMembers(); break;
+                case 'ping':
+                    this.send(id, JSON.stringify({ t: 'pong', name: this.hostName || 'Genos' })); break;
                 case 'claim':
                     if (!(id in this.members)) return; this.admin = id; this.sendMembers(); break;
                 case 'open':
                     if (id !== this.admin || !m.doc) return;
                     this.doc = { id: m.doc.id || null, name: String(m.doc.name || ''), text: String(m.doc.text || '') };
                     if (!m.keep) this.scroll = 0;
+                    this.seq++; this.keep = !!m.keep;
                     this.broadcast({ t: 'open', doc: this.doc, keep: !!m.keep }, id); break;
                 case 'scroll':
                     if (id !== this.admin) return;
                     this.scroll = Math.min(1, Math.max(0, +m.r || 0));
                     this.broadcast({ t: 'scroll', r: this.scroll }, id); break;
+                case 'key':   // hangnem: bárki küldheti, mindenki más megkapja
+                    if (!(id in this.members)) return;
+                    this.key = String(m.key || '').slice(0, 8);
+                    this.broadcast({ t: 'key', key: this.key, from: this.members[id] }, id); break;
+                case 'msg':   // rövid üzenet a bandának
+                    if (!(id in this.members)) return;
+                    this.broadcast({ t: 'msg', text: String(m.text || '').slice(0, 500), from: this.members[id] }, id); break;
             }
         };
 
@@ -4213,6 +4236,7 @@ var qrcode = function() {
                 this.mode = 'host'; lsSet('bandaLastMode', 'host');
                 var conns = {}, self = this;
                 this.hub = new Hub(function (id, s) { if (conns[id]) srv.send(conns[id], s); });
+                this.hub.hostName = this.name();
                 srv.stop(function () {}, function () {});
                 setTimeout(function () {
                     srv.start(PORT, {
@@ -4229,21 +4253,40 @@ var qrcode = function() {
                 this.ui();
             },
             startWeb: function () {
-                var web = window.webserver, self = this; if (!web) return;
+                var self = this, web = window.webserver;
+                var st = function (ok, msg) { var el = $('blWebStatus'); if (el) { el.textContent = (ok ? '✔ ' : '✖ ') + msg; el.style.color = ok ? '#2ecc71' : '#ff6b6b'; } };
+                if (!web) { st(false, 'iPhone-oldal: a webszerver kiegészítő hiányzik az appból'); return; }
+                st(true, 'iPhone-oldal: indul…');
                 var serve = function () {
                     try { web.stop(function () {}, function () {}); } catch (e) {}
                     setTimeout(function () {
                         web.onRequest(function (req) {
+                            if (req.path === '/api/now') {
+                                var h = self.hub || {}, d = h.doc || {};
+                                web.sendResponse(req.requestId, { status: 200,
+                                    body: JSON.stringify({ seq: h.seq || 0, name: d.name || '', text: d.text || '', keep: !!h.keep, key: h.key || '' }),
+                                    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache', 'Access-Control-Allow-Origin': '*' } });
+                                return;
+                            }
                             var isPage = req.path === '/' || req.path === '/index.html';
                             web.sendResponse(req.requestId, isPage
                                 ? { status: 200, body: self.pageHtml, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' } }
                                 : { status: 404, body: '', headers: { 'Content-Type': 'text/plain' } });
                         });
-                        web.start(function () {}, function (err) { toast('Weboldal nem indult: ' + err); }, WEB_PORT);
-                    }, 100);
+                        web.start(function () {
+                            setTimeout(function () {
+                                fetch('http://127.0.0.1:' + WEB_PORT + '/', { mode: 'no-cors', cache: 'no-store' })
+                                    .then(function () { st(true, 'iPhone-oldal működik'); })
+                                    .catch(function () { st(false, 'iPhone-oldal elindult, de nem válaszol'); });
+                            }, 500);
+                        }, function (err) { st(false, 'iPhone-oldal nem indult: ' + err); }, WEB_PORT);
+                    }, 150);
                 };
-                if (this.pageHtml) serve();
-                else fetch('banda.html').then(function (r) { return r.text(); }).then(function (t) { self.pageHtml = t; serve(); }).catch(function () {});
+                if (this.pageHtml) { serve(); return; }
+                fetch('banda.html').then(function (r) { return r.text(); }).then(function (t) {
+                    if (!/Banda Szöveg/.test(t)) throw new Error('a banda.html hiányzik – nézd meg a build.yml-t');
+                    self.pageHtml = t; serve();
+                }).catch(function (e) { st(false, 'iPhone-oldal: ' + (e && e.message || e)); });
             },
             announce: function () {
                 var zc = plugins().zeroconf; if (!zc) return;
@@ -4330,6 +4373,10 @@ var qrcode = function() {
                     var wasAdmin = this.isAdmin();
                     this.list = m.list || []; this.admin = m.admin;
                     if (wasAdmin && !this.isAdmin()) { var a = this.list.filter(function (x) { return x.id === m.admin; })[0]; toast(a ? 'Banda: ' + a.name + ' átvette az irányítást' : 'Banda: irányítás átadva'); }
+                } else if (m.t === 'key' && m.key) {
+                    bandaNote((m.from ? m.from + ': ' : '') + 'Hangnem: ' + m.key, true);
+                } else if (m.t === 'msg' && m.text) {
+                    bandaNote((m.from ? m.from + ': ' : '') + m.text, false);
                 }
                 this.ui();
             },

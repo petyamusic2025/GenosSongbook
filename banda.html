@@ -25,15 +25,19 @@ input:focus,textarea:focus{border-color:var(--accent)}
 
 #app{display:flex;flex-direction:column;height:100%;padding-top:env(safe-area-inset-top)}
 header{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--panel);border-bottom:1px solid var(--line)}
-header h1{font-size:17px;margin:0;font-weight:700;letter-spacing:.2px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header h1{font-size:17px;margin:0;font-weight:700;letter-spacing:.2px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chip{display:flex;align-items:center;gap:6px;font-size:13px;padding:7px 10px;border-radius:99px;
   background:var(--panel2);border:1px solid var(--line);white-space:nowrap}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--dim)}
 .chip.on .dot{background:var(--ok)} .chip.wait .dot{background:var(--accent)}
 #adminBtn{display:none}
+header>button,header>.chip,.vbar>button{flex:none}
+@media (max-width:420px){ header h1{font-size:15px} .chip{padding:6px 8px} }
 #adminBtn.me{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
 
-main{flex:1;display:flex;min-height:0}
+main{flex:1;display:flex;min-height:0;min-width:0}
+main>section{min-width:0}
+#text{overflow-x:auto}
 #library{width:100%;display:flex;flex-direction:column;min-height:0}
 #viewer{width:100%;display:none;flex-direction:column;min-height:0}
 body.show-viewer #library{display:none}
@@ -54,7 +58,7 @@ body.show-viewer #viewer{display:flex}
 .empty{color:var(--dim);text-align:center;padding:40px 20px;line-height:1.5}
 
 .vbar{display:flex;align-items:center;gap:6px;padding:8px 10px;background:var(--panel);border-bottom:1px solid var(--line)}
-.vbar .title{flex:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vbar .title{flex:1;min-width:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #banner{display:none;padding:10px 12px;background:#3a2a10;color:var(--accent);font-size:14px;align-items:center;gap:10px}
 #banner.show{display:flex}
 #banner span{flex:1}
@@ -93,12 +97,40 @@ details summary{cursor:pointer}
 #toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#000c;color:#fff;padding:10px 16px;border-radius:99px;
   font-size:14px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:20;max-width:90%;text-align:center}
 #toast.show{opacity:1}
+
+/* hangnem és üzenetek */
+#keyChip{display:none;font-size:14px;padding:6px 10px;cursor:pointer}
+#keyChip b{color:var(--accent);font-size:16px;min-width:2.2em;text-align:center}
+#keyChip.flash{animation:keyflash .8s ease-in-out infinite}
+@keyframes keyflash{50%{background:var(--accent);color:var(--accent-ink)}}
+#keyChip.flash b{animation:keyflashb .8s ease-in-out infinite}
+@keyframes keyflashb{50%{color:var(--accent-ink)}}
+#msgBtn{display:none}
+#keyStrip{display:none;background:var(--panel);border-bottom:1px solid var(--line)}
+#keyStrip.on{display:block}
+#keyScroll{position:relative;display:flex;align-items:center;gap:4px;overflow-x:auto;scroll-snap-type:x mandatory;
+  padding:6px 50%;scrollbar-width:none;-webkit-mask-image:linear-gradient(90deg,transparent,#000 18%,#000 82%,transparent)}
+#keyScroll::-webkit-scrollbar{display:none}
+.kitem{flex:none;scroll-snap-align:center;min-width:50px;padding:6px 8px;border-radius:10px;border:2px solid transparent;
+  background:none;color:var(--dim);font-size:17px;font-weight:600;transition:font-size .12s,background .12s}
+.kitem.cur{border-color:var(--accent);color:var(--text)}
+.kitem.sel{font-size:24px;font-weight:800;color:var(--accent);border-color:var(--accent);border-style:dashed}
+.kitem.sel.cur{background:var(--accent);color:var(--accent-ink);border-style:solid}
+#bubbles{position:fixed;top:calc(60px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);
+  width:min(92%,520px);display:flex;flex-direction:column;gap:8px;z-index:30;pointer-events:none}
+.bubble{pointer-events:auto;background:var(--accent);color:var(--accent-ink);border-radius:14px;padding:12px 16px;
+  box-shadow:0 8px 28px #000c;font-size:18px;font-weight:600;cursor:pointer;word-break:break-word;white-space:pre-wrap}
+.bubble small{display:block;font-size:12px;font-weight:400;opacity:.75;margin-bottom:2px}
+.bubble.key{text-align:center;font-size:32px;font-weight:800;animation:bubbleflash .7s ease-in-out 8}
+@keyframes bubbleflash{50%{background:#fff}}
 </style>
 </head>
 <body>
 <div id="app">
   <header>
     <h1>🎤 Banda Szöveg</h1>
+    <button id="keyChip" class="chip" title="Hangnem – koppints a váltáshoz">♪ <b id="keyText">–</b></button>
+    <button id="msgBtn" class="icon" title="Üzenet a bandának">💬</button>
     <button id="adminBtn" title="Irányítás átvétele">Átveszem</button>
     <div id="connChip" class="chip" role="button"><span class="dot"></span><span id="connText">Nincs kapcsolat</span></div>
   </header>
@@ -122,6 +154,7 @@ details summary{cursor:pointer}
         <button class="icon" id="fontUp" title="Nagyobb betű">A+</button>
         <button class="icon" id="monoBtn" title="Akkordos (fix szélességű) betű">≡</button>
       </div>
+      <div id="keyStrip" title="Húzd oldalra, a középsőre koppintva elküldöd"><div id="keyScroll"></div></div>
       <div id="text"><p class="placeholder">Válassz egy szöveget a listából, vagy csatlakozz a bandához.</p></div>
     </section>
   </main>
@@ -147,7 +180,7 @@ details summary{cursor:pointer}
         <button id="showJoin">Csatlakozom</button>
       </div>
       <p class="hint" id="browserHint" style="margin-top:10px;display:none">Írd be a neved, és nyomd meg a „Csatlakozom” gombot.</p>
-      <p class="hint" id="appHint" style="margin-top:10px">Egy androidos tag indítja (célszerű annak, akinek a hotspotja megy), a többiek csatlakoznak hozzá. Mindenki ugyanazon a WiFi-n vagy hotspoton legyen.</p>
+      <p class="hint" id="appHint" style="margin-top:10px">Egy tag indítja – androidos telefon vagy windowsos gép (célszerű annak, akinek a hotspotja megy), a többiek csatlakoznak hozzá. Mindenki ugyanazon a WiFi-n vagy hotspoton legyen.</p>
       <div id="joinBox" style="display:none;margin-top:12px">
         <label>Elérhető bandák – koppints rá</label>
         <div class="hosts" id="hostList"><div class="searching">Keresés…</div></div>
@@ -167,6 +200,7 @@ details summary{cursor:pointer}
         <label style="margin-top:10px">iPhone: olvassa be a kamerával</label>
         <div id="myQr" class="qr"></div>
         <div class="ip" id="myUrl" style="font-size:18px">…</div>
+        <p class="hint" id="webStatus" style="text-align:center;margin-top:6px">iPhone-oldal: indul…</p>
         <details style="margin-top:6px"><summary class="hint">Cím kézi beíráshoz</summary><div class="ip" id="myIp" style="font-size:18px;margin-top:6px">…</div></details>
       </div>
       <label style="margin-top:12px">Bent vannak</label>
@@ -213,6 +247,16 @@ details summary{cursor:pointer}
   </div>
 </div>
 
+<!-- Üzenet -->
+<div class="overlay" id="msgSheet">
+  <div class="sheet">
+    <h2>Üzenet a bandának</h2>
+    <textarea id="msgText" rows="3" maxlength="500" placeholder="pl. dalcím vagy egy szövegrészlet"></textarea>
+    <div class="row"><button id="msgCancel">Mégse</button><button class="primary" id="msgSend">Küldés</button></div>
+  </div>
+</div>
+
+<div id="bubbles"></div>
 <div id="toast"></div>
 
 <script>
@@ -2758,7 +2802,7 @@ $('tabView').onclick = () => showView('viewer');
 
 /* ---------- Hub: a szerver logikája (csak az indító készüléken fut) ---------- */
 class Hub {
-  constructor(sendFn){ this.send = sendFn; this.members = {}; this.admin = null; this.doc = null; this.scroll = 0; }
+  constructor(sendFn){ this.send = sendFn; this.members = {}; this.admin = null; this.doc = null; this.scroll = 0; this.key = ''; this.seq = 0; this.keep = false; }
   list(){ return Object.keys(this.members).map(id => ({ id, name: this.members[id] })); }
   broadcast(msg, except){ const s = JSON.stringify(msg); Object.keys(this.members).forEach(id => { if (id !== except) this.send(id, s); }); }
   sendMembers(){ this.broadcast({ t: 'members', list: this.list(), admin: this.admin }); }
@@ -2774,8 +2818,11 @@ class Hub {
       case 'hello':
         this.members[id] = String(m.name || 'Tag').slice(0, 24);
         if (!this.admin && m.wantAdmin) this.admin = id;
-        this.send(id, JSON.stringify({ t: 'welcome', id, admin: this.admin, doc: this.doc, scroll: this.scroll, list: this.list() }));
+        this.send(id, JSON.stringify({ t: 'welcome', id, admin: this.admin, doc: this.doc, scroll: this.scroll, list: this.list(), key: this.key }));
         this.sendMembers();
+        break;
+      case 'ping':
+        this.send(id, JSON.stringify({ t: 'pong', name: this.hostName || 'Banda' }));
         break;
       case 'claim':
         if (!(id in this.members)) return;
@@ -2785,12 +2832,23 @@ class Hub {
         if (id !== this.admin || !m.doc) return;
         this.doc = { id: m.doc.id || null, name: String(m.doc.name || ''), text: String(m.doc.text || '') };
         if (!m.keep) this.scroll = 0;
+        this.seq++; this.keep = !!m.keep;
         this.broadcast({ t: 'open', doc: this.doc, keep: !!m.keep }, id);
         break;
       case 'scroll':
         if (id !== this.admin) return;
         this.scroll = Math.min(1, Math.max(0, +m.r || 0));
         this.broadcast({ t: 'scroll', r: this.scroll }, id);
+        break;
+      // hangnem és üzenet: bárki küldheti, mindenki más megkapja a küldő nevével
+      case 'key':
+        if (!(id in this.members)) return;
+        this.key = String(m.key || '').slice(0, 8);
+        this.broadcast({ t: 'key', key: this.key, from: this.members[id] }, id);
+        break;
+      case 'msg':
+        if (!(id in this.members)) return;
+        this.broadcast({ t: 'msg', text: String(m.text || '').slice(0, 500), from: this.members[id] }, id);
         break;
     }
   }
@@ -2800,39 +2858,90 @@ class Hub {
 const SVC = '_bandaszoveg._tcp.';
 function zeroconf(){ return window.cordova && cordova.plugins && cordova.plugins.zeroconf; }
 const discovery = {
-  hosts: {}, active: false,
+  mdns: {}, found: {}, hosts: {}, active: false, scanning: false, scanTimer: null,
   start(){
-    if (this.active) return;
-    this.hosts = {}; this.render();
+    if (this.active){ this.scan(); return; }
+    this.active = true; this.mdns = {}; this.found = {}; this.merge();
     const zc = zeroconf();
     if (zc){
-      this.active = true;
       zc.watchAddressFamily = 'ipv4';
       zc.watch(SVC, 'local.', r => {
         const sv = r.service || {};
         if (r.action === 'resolved' && sv.ipv4Addresses && sv.ipv4Addresses.length){
-          this.hosts[sv.name] = { key: sv.name, name: (sv.txtRecord && sv.txtRecord.n) || sv.name, ip: sv.ipv4Addresses[0] };
-        } else if (r.action === 'removed') delete this.hosts[sv.name];
+          this.mdns[sv.name] = { key: sv.name, name: (sv.txtRecord && sv.txtRecord.n) || sv.name, ip: sv.ipv4Addresses[0] };
+        } else if (r.action === 'removed') delete this.mdns[sv.name];
         this.changed();
       }, () => {});
     } else if (window.bandaDesktop && window.bandaDesktop.findHosts){
-      this.active = true;
       window.bandaDesktop.findHosts(list => {
-        this.hosts = {}; (list || []).forEach(h => { this.hosts[h.key] = h; });
+        this.mdns = {}; (list || []).forEach(h => { this.mdns[h.key] = h; });
         this.changed();
       });
-    } else {
-      $('hostList').innerHTML = '<div class="searching">Itt nincs automatikus keresés, írd be a címet.</div>';
     }
+    this.scan();
+    // amíg nincs találat, időnként újra körbenéz
+    clearInterval(this.scanTimer);
+    this.scanTimer = setInterval(() => { if (this.active && !Object.keys(this.hosts).length) this.scan(); }, 15000);
   },
   stop(){
     if (!this.active) return; this.active = false;
+    clearInterval(this.scanTimer);
     const zc = zeroconf();
     try { if (zc) zc.unwatch(SVC, 'local.'); } catch(e){}
     try { if (window.bandaDesktop && window.bandaDesktop.stopFind) window.bandaDesktop.stopFind(); } catch(e){}
   },
+
+  /* --- saját címek: ebből tudjuk, melyik hálózaton kell keresni --- */
+  myIps(){
+    return new Promise(res => {
+      const srv = window.cordova && cordova.plugins && cordova.plugins.wsserver;
+      if (srv) srv.getInterfaces(r => {
+        const ips = []; Object.keys(r || {}).forEach(n => (r[n].ipv4Addresses || []).forEach(a => { if (a !== '127.0.0.1') ips.push(a); }));
+        res(ips);
+      }, () => res([]));
+      else if (window.bandaDesktop && window.bandaDesktop.localIps) window.bandaDesktop.localIps().then(res, () => res([]));
+      else res([]);
+    });
+  },
+  /* --- egy cím kipróbálása: válaszol-e rajta Banda szerver --- */
+  probe(ip, ms){
+    return new Promise(res => {
+      let ws, done = false;
+      const fin = v => { if (done) return; done = true; clearTimeout(t); try { ws && ws.close(); } catch(e){} res(v); };
+      const t = setTimeout(() => fin(null), ms || 1500);
+      try { ws = new WebSocket(`ws://${ip}:${PORT}`); } catch(e){ fin(null); return; }
+      ws.onopen = () => { try { ws.send(JSON.stringify({ t: 'ping' })); } catch(e){} };
+      ws.onmessage = ev => { try { const m = JSON.parse(ev.data); if (m.t === 'pong') fin({ key: 'ip:' + ip, name: m.name || ip, ip }); } catch(e){} };
+      ws.onerror = () => fin(null);
+    });
+  },
+  async scan(){
+    if (this.scanning) return; this.scanning = true; this.render();
+    try {
+      const mine = await this.myIps();
+      const order = [];
+      // először a ".1" címek (a hotspotot adó telefon szinte mindig ez), utána a teljes hálózat
+      mine.forEach(ip => { const b = ip.split('.').slice(0, 3).join('.'); if (!order.includes(b + '.1')) order.push(b + '.1'); });
+      const last = store.get('lastIp', ''); if (last && !order.includes(last)) order.unshift(last);
+      mine.forEach(ip => { const b = ip.split('.').slice(0, 3).join('.'); for (let i = 2; i < 255; i++){ const a = b + '.' + i; if (!order.includes(a) && !mine.includes(a)) order.push(a); } });
+      for (let i = 0; i < order.length && this.active; i += 32){
+        const res = await Promise.all(order.slice(i, i + 32).map(ip => this.probe(ip, 1500)));
+        let any = false;
+        res.forEach(h => { if (h){ this.found[h.key] = h; any = true; } });
+        if (any) this.changed();
+      }
+    } catch(e){}
+    this.scanning = false; this.render();
+  },
+
+  merge(){
+    const out = {}, ips = {};
+    Object.values(this.mdns).forEach(h => { out[h.key] = h; ips[h.ip] = true; });
+    Object.values(this.found).forEach(h => { if (!ips[h.ip]) out[h.key] = h; });
+    this.hosts = out;
+  },
   changed(){
-    this.render();
+    this.merge(); this.render();
     // ha a már kiválasztott banda új címet kapott (pl. újraindult a hotspot), átállunk rá
     if (net.mode === 'join' && net.hostKey){
       const h = this.hosts[net.hostKey];
@@ -2842,9 +2951,11 @@ const discovery = {
   render(){
     if (!this.active) return;
     const list = Object.values(this.hosts);
-    $('hostList').innerHTML = list.length
+    $('hostList').innerHTML = (list.length
       ? list.map(h => `<button data-host="${esc(h.key)}">🎤 ${esc(h.name)}<small>${esc(h.ip)}</small></button>`).join('')
-      : '<div class="searching">Keresés… (az indító telefon legyen ugyanazon a WiFi-n / hotspoton)</div>';
+      : '<div class="searching">' + (this.scanning ? 'Keresés a hálózaton…' : 'Nem találtam indítót. Ugyanazon a WiFi-n / hotspoton vagytok?') + '</div>')
+      + (this.scanning ? '' : '<div class="searching"><a href="#" id="rescan" style="color:var(--accent)">🔄 Keresés újra</a></div>');
+    const rs = $('rescan'); if (rs) rs.onclick = e => { e.preventDefault(); this.scan(); };
   }
 };
 $('hostList').onclick = e => {
@@ -2862,14 +2973,19 @@ const net = {
   ws: null, connected: false, myId: null, mode: null /* 'host' | 'join' */, ip: null, retry: null, hub: null,
   wsserver(){ return window.cordova && cordova.plugins && cordova.plugins.wsserver; },
 
+  // Windows (Electron): a szervert a main.js futtatja, ez az oldal csak a Hub logikát adja hozzá
+  desktopServer(){ return window.bandaDesktop && window.bandaDesktop.startServer ? window.bandaDesktop : null; },
+
   startHost(){
     const srv = this.wsserver();
+    if (!srv && this.desktopServer()){ this.startDesktopHost(this.desktopServer()); return; }
     if (!srv){ toast('A szerver csak a telepített appban indítható'); return; }
     this.stopAll();
     discovery.stop();
     this.mode = 'host';
     const conns = {};
     this.hub = new Hub((id, s) => { if (conns[id]) srv.send(conns[id], s); });
+    this.hub.hostName = myName();
     srv.stop(() => {}, () => {});
     setTimeout(() => {
       srv.start(PORT, {
@@ -2888,24 +3004,66 @@ const net = {
     }, 150);
     updateUi();
   },
+  startDesktopHost(desk){
+    this.stopAll();
+    discovery.stop();
+    this.mode = 'host';
+    this.hub = new Hub((id, s) => desk.serverSend(id, s));
+    this.hub.hostName = myName();
+    updateUi();
+    desk.startServer(myName(), {
+      onMessage: (id, msg) => this.hub && this.hub.message(id, msg),
+      onClose: id => this.hub && this.hub.leave(id)
+    }).then(() => {
+      $('myHostName').textContent = myName();
+      const ws = $('webStatus'); if (ws) ws.style.display = 'none';   // Windowson a main.js szolgálja ki az oldalt
+      this.showMyIp();
+      this.connect('127.0.0.1', true);
+      keepAwake(true);
+    }, err => {
+      toast('Nem sikerült elindítani: ' + ((err && err.message) || err));
+      this.hub = null; this.mode = null; updateUi();
+    });
+  },
   // A saját oldalát kiszolgálja böngészőknek (iPhone, Windows, bármi)
   pageHtml: null,
   startWeb(){
-    const web = window.webserver; if (!web) return;
+    const st = (ok, msg) => { const el = $('webStatus'); if (el){ el.textContent = (ok ? '✔ ' : '✖ ') + msg; el.style.color = ok ? 'var(--ok)' : 'var(--warn)'; } };
+    const web = window.webserver;
+    if (!web){ st(false, 'iPhone-oldal: a webszerver kiegészítő hiányzik az appból'); return; }
+    st(true, 'iPhone-oldal: indul…');
     const serve = () => {
       try { web.stop(() => {}, () => {}); } catch(e){}
       setTimeout(() => {
         web.onRequest(req => {
+          // külső programoknak (pl. Delphi): az éppen megnyitott dal
+          if (req.path === '/api/now'){
+            const h = this.hub || {}, d = h.doc || {};
+            web.sendResponse(req.requestId, { status: 200,
+              body: JSON.stringify({ seq: h.seq || 0, name: d.name || '', text: d.text || '', keep: !!h.keep, key: h.key || '' }),
+              headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache', 'Access-Control-Allow-Origin': '*' } });
+            return;
+          }
           const isPage = req.path === '/' || req.path === '/index.html';
           web.sendResponse(req.requestId, isPage
             ? { status: 200, body: this.pageHtml, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' } }
             : { status: 404, body: '', headers: { 'Content-Type': 'text/plain' } });
         });
-        web.start(() => {}, err => toast('Weboldal nem indult: ' + err), WEB_PORT);
-      }, 100);
+        web.start(() => {
+          // önellenőrzés: elérhető-e az oldal ezen a telefonon
+          setTimeout(() => {
+            fetch(`http://127.0.0.1:${WEB_PORT}/`, { mode: 'no-cors', cache: 'no-store' })
+              .then(() => st(true, 'iPhone-oldal működik'))
+              .catch(() => st(false, 'iPhone-oldal elindult, de nem válaszol'));
+          }, 500);
+        }, err => st(false, 'iPhone-oldal nem indult: ' + err), WEB_PORT);
+      }, 150);
     };
-    if (this.pageHtml) serve();
-    else fetch('/index.html').then(r => r.text()).then(t => { this.pageHtml = t; serve(); }).catch(() => {});
+    if (this.pageHtml) { serve(); return; }
+    fetch('/index.html').then(r => r.text()).then(t => {
+      if (!/Banda Szöveg/.test(t)) throw new Error('rossz tartalom');
+      this.pageHtml = t; serve();
+    }).catch(e => st(false, 'iPhone-oldal: nem olvasható be az oldal (' + (e && e.message || e) + ')'));
   },
   serviceName: null,
   announce(){
@@ -2919,10 +3077,7 @@ const net = {
               () => zc.register(SVC, 'local.', this.serviceName, PORT, { n: name }, () => {}, () => {}));
   },
   showMyIp(){
-    const srv = this.wsserver(); if (!srv) return;
-    srv.getInterfaces(res => {
-      const ips = [];
-      Object.keys(res || {}).forEach(name => (res[name].ipv4Addresses || []).forEach(a => { if (a !== '127.0.0.1' && !ips.includes(a)) ips.push(a); }));
+    const show = ips => {
       $('myIp').innerHTML = ips.length ? ips.map(esc).join('<br>') : 'Kapcsold be a hotspotot vagy a WiFit';
       $('myUrl').innerHTML = ips.length ? ips.map(a => esc(`http://${a}:${WEB_PORT}`)).join('<br>') : '—';
       try {
@@ -2931,7 +3086,15 @@ const net = {
           $('myQr').innerHTML = q.createSvgTag(6, 2); $('myQr').style.display = '';
         } else $('myQr').style.display = 'none';
       } catch(e){ $('myQr').style.display = 'none'; }
+    };
+    const srv = this.wsserver();
+    if (srv) srv.getInterfaces(res => {
+      const ips = [];
+      Object.keys(res || {}).forEach(name => (res[name].ipv4Addresses || []).forEach(a => { if (a !== '127.0.0.1' && !ips.includes(a)) ips.push(a); }));
+      show(ips);
     }, () => { $('myIp').textContent = '?'; });
+    else if (window.bandaDesktop && window.bandaDesktop.localIps)
+      window.bandaDesktop.localIps().then(ips => show((ips || []).filter(a => a !== '127.0.0.1')), () => { $('myIp').textContent = '?'; });
   },
   hostKey: null,
   join(ip, hostKey){
@@ -2973,6 +3136,7 @@ const net = {
     switch (m.t){
       case 'welcome':
         this.connected = true; this.myId = m.id;
+        currentKey = m.key || ''; setKeyChip(currentKey, false);
         state.admin = m.admin; state.list = m.list || []; state.doc = m.doc; state.scroll = m.scroll || 0;
         if (m.doc && m.admin !== m.id) { showDoc(m.doc, state.scroll); archiveDoc(m.doc); }
         else if (m.admin === m.id && current) { this.send({ t: 'open', doc: current }); }
@@ -3000,6 +3164,15 @@ const net = {
         state.scroll = m.r;
         if (!isAdmin() && !followPaused) setRatio(m.r);
         break;
+      case 'key':
+        currentKey = m.key || '';
+        setKeyChip(currentKey, true);
+        if (KEYS.indexOf(currentKey) >= 0) centerKey(KEYS.indexOf(currentKey), true);
+        if (currentKey) bubble(m.from, 'Hangnem: ' + currentKey, true);
+        break;
+      case 'msg':
+        if (m.text) bubble(m.from, m.text, false);
+        break;
     }
   },
   stopAll(){
@@ -3010,6 +3183,7 @@ const net = {
       const srv = this.wsserver(); if (srv) srv.stop(() => {}, () => {});
       try { const zc = zeroconf(); if (zc) zc.stop(() => {}, () => {}); } catch(e){}
       try { window.webserver && window.webserver.stop(() => {}, () => {}); } catch(e){}
+      try { const d = this.desktopServer(); if (d) d.stopServer(); } catch(e){}
     }
     this.hub = null; this.mode = null; this.hostKey = null; this.connected = false; this.myId = null;
     state.admin = null; state.list = [];
@@ -3082,6 +3256,11 @@ function updateUi(){
   if (net.connected){ chip.classList.add('on'); txt = (net.mode === 'host' ? 'Szerver · ' : '') + state.list.length + ' fő'; }
   else if (net.mode){ chip.classList.add('wait'); txt = 'Kapcsolódás…'; }
   $('connText').textContent = txt;
+  $('keyChip').style.display = net.connected ? 'flex' : 'none';
+  const ks = $('keyStrip'), wasOn = ks.classList.contains('on');
+  ks.classList.toggle('on', net.connected);
+  if (net.connected && !wasOn) requestAnimationFrame(() => centerKey(Math.max(0, KEYS.indexOf(currentKey)), false));
+  $('msgBtn').style.display = net.connected ? 'block' : 'none';
 
   const ab = $('adminBtn');
   if (net.connected){
@@ -3107,7 +3286,7 @@ $('showJoin').onclick = () => {
   if (SERVED){ store.set('name', $('myName').value.trim()); net.join(location.hostname); return; }
   $('joinBox').style.display = ''; discovery.start();
 };
-if (!IN_APP){ $('hostBtn').style.display = 'none'; $('showJoin').classList.add('primary'); }
+if (!IN_APP && !net.desktopServer()){ $('hostBtn').style.display = 'none'; $('showJoin').classList.add('primary'); }
 if (SERVED){ $('appHint').style.display = 'none'; $('browserHint').style.display = ''; }
 $('hostBtn').onclick = () => { store.set('name', $('myName').value.trim()); net.startHost(); };
 $('joinBtn').onclick = () => {
@@ -3129,6 +3308,76 @@ $('adminBtn').onclick = () => {
   net.send({ t: 'scroll', r: getRatio() });
 };
 document.querySelectorAll('.overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) o.classList.remove('show'); }));
+
+/* ---------- hangnem és üzenetek ---------- */
+const KEYS = ['C','Cm','C#','C#m','D','Dm','Eb','Ebm','E','Em','F','Fm','F#','F#m','G','Gm','Ab','Abm','A','Am','Bb','Bbm','B','Bm'];
+let currentKey = '', keyFlashTimer = null;
+function setKeyChip(k, flash){
+  $('keyText').textContent = k || '–';
+  if (typeof markCur === 'function') markCur();
+  const c = $('keyChip');
+  c.classList.remove('flash');
+  clearTimeout(keyFlashTimer);
+  if (flash){ void c.offsetWidth; c.classList.add('flash'); keyFlashTimer = setTimeout(() => c.classList.remove('flash'), 10000); }
+}
+// felugró buborék: koppintásra eltűnik, magától 20 (hangnemnél 12) másodperc múlva
+function bubble(from, text, isKey){
+  const b = document.createElement('div');
+  b.className = 'bubble' + (isKey ? ' key' : '');
+  b.innerHTML = (from ? '<small>' + esc(from) + '</small>' : '') + esc(text);
+  b.onclick = () => b.remove();
+  $('bubbles').prepend(b);
+  setTimeout(() => b.remove(), isKey ? 12000 : 20000);
+  try { if (navigator.vibrate) navigator.vibrate(isKey ? [200, 100, 200] : 150); } catch(e){}
+}
+// hangnem-csík: oldalra húzható, a középső a kiválasztott; koppintás a középsőre = küldés
+const keyScroll = $('keyScroll');
+let selKey = 0, keyScrollTimer = null;
+KEYS.forEach((k, i) => {
+  const b = document.createElement('button');
+  b.className = 'kitem'; b.textContent = k; b.dataset.i = i;
+  keyScroll.appendChild(b);
+});
+function markSel(i){ selKey = i; [...keyScroll.children].forEach((c, j) => c.classList.toggle('sel', j === i)); }
+function markCur(){ [...keyScroll.children].forEach(c => c.classList.toggle('cur', c.textContent === currentKey)); }
+function centerKey(i, smooth){
+  const el = keyScroll.children[i]; if (!el) return;
+  keyScroll.scrollTo({ left: el.offsetLeft - (keyScroll.clientWidth - el.offsetWidth) / 2, behavior: smooth ? 'smooth' : 'auto' });
+  markSel(i);
+}
+keyScroll.addEventListener('scroll', () => {
+  clearTimeout(keyScrollTimer);
+  keyScrollTimer = setTimeout(() => {
+    const mid = keyScroll.scrollLeft + keyScroll.clientWidth / 2;
+    let best = 0, bd = 1e9;
+    [...keyScroll.children].forEach((c, j) => { const d = Math.abs(c.offsetLeft + c.offsetWidth / 2 - mid); if (d < bd){ bd = d; best = j; } });
+    markSel(best);
+  }, 90);
+}, { passive: true });
+keyScroll.addEventListener('click', e => {
+  const b = e.target.closest('.kitem'); if (!b) return;
+  const i = +b.dataset.i;
+  if (i !== selKey){ centerKey(i, true); return; }      // oldalsó: előbb középre
+  if (!net.connected){ toast('Előbb csatlakozz a bandához'); return; }
+  const k = KEYS[i];
+  net.send({ t: 'key', key: k });
+  currentKey = k; setKeyChip(k, false);
+  toast('Hangnem elküldve: ' + k);
+});
+$('keyChip').onclick = () => {
+  showView('viewer');
+  requestAnimationFrame(() => centerKey(Math.max(0, KEYS.indexOf(currentKey)), true));
+};
+$('msgBtn').onclick = () => {
+  if (!net.connected){ toast('Előbb csatlakozz a bandához'); return; }
+  $('msgText').value = ''; show('msgSheet'); setTimeout(() => $('msgText').focus(), 150);
+};
+$('msgCancel').onclick = () => hide('msgSheet');
+$('msgSend').onclick = () => {
+  const t = $('msgText').value.trim(); if (!t) return;
+  net.send({ t: 'msg', text: t });
+  hide('msgSheet'); toast('Üzenet elküldve');
+};
 
 /* ---------- indulás ---------- */
 applyLook();
