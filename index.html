@@ -1812,6 +1812,14 @@
         #bandaModal .bl-qr svg { display:block; width:190px; height:190px; }
         #bandaModal .bl-url { text-align:center; color:#ffcc00; font-weight:bold; font-size:17px; word-break:break-all; }
         #bandaModal .bl-mem div { padding:6px 10px; background:#2a2a32; border-radius:6px; margin:4px 0; }
+        #blComm .bl-keys { display:grid; grid-template-columns:repeat(6,1fr); gap:5px; margin:6px 0 10px; }
+        #blComm .bl-keys button { padding:9px 0; font-size:15px; font-weight:bold; border-radius:8px; border:1px solid #444; background:#2a2a32; color:#fff; }
+        #blComm .bl-keys button.cur { background:#ffcc00; color:#121216; border-color:#ffcc00; }
+        #blComm textarea { width:100%; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid #444; background:#2a2a32; color:#fff; font-size:16px; resize:vertical; }
+        #bandaAsk { position:fixed; top:70px; left:50%; transform:translateX(-50%); z-index:5001; width:min(92%,520px); display:none;
+            background:#1e1e24; color:#fff; border:2px solid #1abc9c; border-radius:14px; padding:14px 16px; box-shadow:0 10px 32px #000d; }
+        #bandaAsk .ba-t { font-size:14px; color:#aaa; } #bandaAsk .ba-s { font-size:22px; font-weight:bold; color:#ffcc00; margin:4px 0 12px; }
+        #bandaAsk .ba-r { display:flex; gap:8px; } #bandaAsk .ba-r button { flex:1; padding:12px; font-size:17px; }
         #bandaModal label.bl-chk { display:flex; gap:8px; align-items:center; margin:6px 0; font-size:15px; }
     </style>
 
@@ -1843,6 +1851,13 @@
                     <div class="bl-url" id="blUrl">…</div>
                     <div class="bl-hint" id="blWebStatus" style="text-align:center;">iPhone-oldal: indul…</div>
                 </div>
+                <div id="blComm">
+                    <div class="bl-hint" style="margin-top:10px;">Hangnem küldése a bandának – koppints rá:</div>
+                    <div class="bl-keys" id="blKeys"></div>
+                    <div class="bl-hint">Üzenet a bandának:</div>
+                    <textarea id="blMsg" rows="2" maxlength="500" placeholder="pl. Utolsó refrén kétszer!"></textarea>
+                    <div class="bl-row"><button class="btn-top" style="border-color:#ffcc00;color:#ffcc00;" onclick="bandaLink.sendMsg()">💬 Üzenet küldése</button></div>
+                </div>
                 <div class="bl-hint" style="margin-top:10px;">Bent vannak:</div>
                 <div class="bl-mem" id="blMembers"></div>
                 <div class="bl-row"><button class="btn-top" style="border-color:#ff4d4d;color:#ff4d4d;" onclick="bandaLink.leave()">Kilépés</button></div>
@@ -1850,7 +1865,17 @@
 
             <label class="bl-chk"><input type="checkbox" id="blSend" checked onchange="bandaLink.saveOpts()"> Megnyitott dalok küldése a bandának</label>
             <label class="bl-chk"><input type="checkbox" id="blAuto" onchange="bandaLink.saveOpts()"> Az app indításakor automatikusan induljon</label>
+            <label class="bl-chk"><input type="checkbox" id="blAsk" checked onchange="bandaLink.saveOpts()"> Ha más nyit meg egy dalt, ami nekem is megvan: kérdezzen rá a betöltésre</label>
             <div class="bl-row"><button class="btn-top" onclick="document.getElementById('bandaModal').style.display='none'">Bezár</button></div>
+        </div>
+    </div>
+
+    <div id="bandaAsk">
+        <div class="ba-t" id="baFrom"></div>
+        <div class="ba-s" id="baSong"></div>
+        <div class="ba-r">
+            <button class="btn-top" style="border-color:#2ecc71;color:#2ecc71;" onclick="bandaLink.askYes()">Betöltés</button>
+            <button class="btn-top" onclick="bandaLink.askNo()">Nem</button>
         </div>
     </div>
 
@@ -4224,7 +4249,7 @@ var qrcode = function() {
             name: function () { return ($('blName').value.trim() || lsGet('bandaName', '') || 'Genos'); },
             isAdmin: function () { return this.connected && this.admin === this.myId; },
             sendOn: function () { return $('blSend').checked; },
-            saveOpts: function () { lsSet('bandaSend', $('blSend').checked); lsSet('bandaAuto', $('blAuto').checked); lsSet('bandaName', $('blName').value.trim()); },
+            saveOpts: function () { lsSet('bandaAsk', $('blAsk').checked); lsSet('bandaSend', $('blSend').checked); lsSet('bandaAuto', $('blAuto').checked); lsSet('bandaName', $('blName').value.trim()); },
 
             open: function () { this.ui(); $('bandaModal').style.display = 'flex'; },
 
@@ -4366,7 +4391,7 @@ var qrcode = function() {
             onMessage: function (raw) {
                 var m; try { m = JSON.parse(raw); } catch (e) { return; }
                 if (m.t === 'welcome') {
-                    this.connected = true; this.myId = m.id; this.admin = m.admin; this.list = m.list || [];
+                    this.connected = true; this.myId = m.id; this.admin = m.admin; this.list = m.list || []; this.key = m.key || '';
                     toast(this.mode === 'host' ? 'Banda szerver elindult' : 'Csatlakozva a bandához');
                     if (this.lastDoc && this.sendOn()) this.share(this.lastDoc.name, this.lastDoc.text, false);
                 } else if (m.t === 'members') {
@@ -4374,12 +4399,64 @@ var qrcode = function() {
                     this.list = m.list || []; this.admin = m.admin;
                     if (wasAdmin && !this.isAdmin()) { var a = this.list.filter(function (x) { return x.id === m.admin; })[0]; toast(a ? 'Banda: ' + a.name + ' átvette az irányítást' : 'Banda: irányítás átadva'); }
                 } else if (m.t === 'key' && m.key) {
+                    this.key = m.key;
                     bandaNote((m.from ? m.from + ': ' : '') + 'Hangnem: ' + m.key, true);
+                } else if (m.t === 'open' && m.doc) {
+                    if (!m.keep) this.offerSong(m.doc, this.nameOf(this.admin));
                 } else if (m.t === 'msg' && m.text) {
                     bandaNote((m.from ? m.from + ': ' : '') + m.text, false);
                 }
                 this.ui();
             },
+
+            /* --- hangnem és üzenet küldése --- */
+            key: '',
+            KEYS: ['C','Cm','C#','C#m','D','Dm','Eb','Ebm','E','Em','F','Fm','F#','F#m','G','Gm','Ab','Abm','A','Am','Bb','Bbm','B','Bm'],
+            nameOf: function (id) { var a = this.list.filter(function (x) { return x.id === id; })[0]; return a ? a.name : ''; },
+            sendKey: function (k) {
+                if (!this.connected) { toast('Előbb indítsd el vagy csatlakozz a bandához'); return; }
+                this.raw({ t: 'key', key: k }); this.key = k; this.ui(); toast('Hangnem elküldve: ' + k);
+            },
+            sendMsg: function () {
+                var t = $('blMsg').value.trim(); if (!t) return;
+                if (!this.connected) { toast('Előbb indítsd el vagy csatlakozz a bandához'); return; }
+                this.raw({ t: 'msg', text: t }); $('blMsg').value = ''; toast('Üzenet elküldve');
+            },
+
+            /* --- más által megnyitott dal: ha megvan a Songbookban, rákérdez --- */
+            pendingIdx: -1, askTimer: null, loadingFromBand: false,
+            norm: function (s) {
+                s = String(s || ''); var p = s.indexOf(' – '); if (p > 0) s = s.slice(0, p);
+                return s.replace(/\.txt$/i, '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+            },
+            findSong: function (name) {
+                var key = this.norm(name); if (!key) return -1;
+                var full = String(name || '').toLowerCase().trim(), best = -1;
+                for (var i = 0; i < songbookSongs.length; i++) {
+                    var sg = songbookSongs[i];
+                    if (songName(sg).toLowerCase().trim() === full) return i;     // pontos (cím – előadó)
+                    if (best < 0 && this.norm(sg.title) === key) best = i;         // csak a cím egyezik
+                }
+                return best;
+            },
+            offerSong: function (doc, from) {
+                if (!$('blAsk').checked) return;
+                var idx = this.findSong(doc.name); if (idx < 0) return;
+                if (idx === currentSelectedSongIndex) return;                       // már ez van megnyitva
+                this.pendingIdx = idx;
+                $('baFrom').textContent = (from ? from + ' megnyitotta' : 'A banda megnyitotta') + ' – megvan a Songbookban:';
+                $('baSong').textContent = songName(songbookSongs[idx]);
+                $('bandaAsk').style.display = 'block';
+                try { if (navigator.vibrate) navigator.vibrate(150); } catch (e) {}
+                var self = this; clearTimeout(this.askTimer);
+                this.askTimer = setTimeout(function () { self.askNo(); }, 30000);
+            },
+            askYes: function () {
+                var idx = this.pendingIdx; this.askNo(); if (idx < 0 || !songbookSongs[idx]) return;
+                this.loadingFromBand = true;                 // betöltés az irányítás átvétele nélkül
+                try { loadAndTriggerSong(idx); } finally { this.loadingFromBand = false; }
+            },
+            askNo: function () { clearTimeout(this.askTimer); $('bandaAsk').style.display = 'none'; this.pendingIdx = -1; },
 
             /* --- dal küldése --- */
             share: function (name, text, keep) {
@@ -4427,12 +4504,15 @@ var qrcode = function() {
                 var b = $('bandaBtn'); if (!b) return;
                 b.classList.remove('on', 'wait');
                 var txt = 'Banda';
-                if (this.connected) { b.classList.add('on'); txt = 'Banda ' + this.list.length + (this.isAdmin() ? ' ★' : ''); }
+                if (this.connected) { b.classList.add('on'); txt = 'Banda ' + this.list.length + (this.isAdmin() ? ' ★' : '') + (this.key ? ' · ' + this.key : ''); }
                 else if (this.mode) { b.classList.add('wait'); txt = 'Banda…'; }
                 b.innerHTML = '<span class="bdot"></span>' + txt;
                 $('blIdle').style.display = this.mode ? 'none' : '';
                 $('blActive').style.display = this.mode ? '' : 'none';
                 $('blHostInfo').style.display = this.mode === 'host' ? '' : 'none';
+                $('blComm').style.display = this.connected ? '' : 'none';
+                var cur = this.key;
+                Array.prototype.forEach.call($('blKeys').children, function (k) { k.classList.toggle('cur', k.textContent === cur); });
                 var self = this;
                 $('blMembers').innerHTML = this.list.length
                     ? this.list.map(function (x) { return '<div>' + (x.id === self.admin ? '★ ' : '') + esc(x.name) + (x.id === self.myId ? ' (te)' : '') + '</div>'; }).join('')
@@ -4449,7 +4529,7 @@ var qrcode = function() {
             L.share(songName(sg), songText(sg, globalTransposeOffset), keep);
         }
         var _load = window.loadAndTriggerSong;
-        window.loadAndTriggerSong = function (index) { var r = _load.apply(this, arguments); try { shareCurrent(false); } catch (e) {} return r; };
+        window.loadAndTriggerSong = function (index) { var r = _load.apply(this, arguments); try { if (!L.loadingFromBand) shareCurrent(false); } catch (e) {} return r; };
         var _popup = window.showGenosLyricsPopup;
         window.showGenosLyricsPopup = function (idx) {
             var r = _popup.apply(this, arguments);
@@ -4485,6 +4565,13 @@ var qrcode = function() {
         $('blName').value = lsGet('bandaName', '');
         $('blSend').checked = lsGet('bandaSend', true);
         $('blAuto').checked = lsGet('bandaAuto', false);
+        $('blAsk').checked = lsGet('bandaAsk', true);
+        L.KEYS.forEach(function (k) {
+            var kb = document.createElement('button'); kb.textContent = k;
+            kb.onclick = function () { L.sendKey(k); };
+            $('blKeys').appendChild(kb);
+        });
+        $('blMsg').addEventListener('keydown', function (e) { e.stopPropagation(); });
         $('blIp').value = lsGet('bandaLastIp', '');
         L.ui();
 
