@@ -2755,6 +2755,12 @@ textEl.addEventListener('scroll', () => {
   else if (!scrollTimer) scrollTimer = setTimeout(send, 70);
 }, { passive: true });
 
+function hostPick(name){
+  const f = files.find(x => x.name === name); if (!f) return;
+  net.send({ t: 'claim' }); state.admin = net.myId; followPaused = false; pendingRemote = null; updateUi();
+  showDoc(docOf(f)); net.send({ t: 'open', doc: docOf(f) });
+  toast('Megnyitva (kérésre): ' + f.name);
+}
 function pickFile(id){
   const f = files.find(x => x.id === id); if (!f) return;
   if (!net.connected || isAdmin()){
@@ -2801,8 +2807,84 @@ $('tabLib').onclick = () => showView('library');
 $('tabView').onclick = () => showView('viewer');
 
 /* ---------- Hub: a szerver logikája (csak az indító készüléken fut) ---------- */
+/* Banda kereső: dalcím vagy szövegrészlet alapján, magyar + szerb (cirill/latin), hibatűrő */
+function bandaNorm(s) {
+  var CYR = { 'а':'a','б':'b','в':'v','г':'g','д':'d','ђ':'dj','е':'e','ж':'z','з':'z','и':'i','ј':'j','к':'k','л':'l','љ':'lj',
+    'м':'m','н':'n','њ':'nj','о':'o','п':'p','р':'r','с':'s','т':'t','ћ':'c','у':'u','ф':'f','х':'h','ц':'c','ч':'c','џ':'dz','ш':'s' };
+  s = String(s || '').toLowerCase();
+  var out = '';
+  for (var i = 0; i < s.length; i++) { var ch = s[i]; out += CYR.hasOwnProperty(ch) ? CYR[ch] : ch; }
+  out = out.replace(/đ/g, 'dj').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return out.replace(/[^a-z0-9]+/g, ' ').trim();
+}
+function bandaLev(a, b) {
+  if (a === b) return 0;
+  var m = a.length, n = b.length; if (!m) return n; if (!n) return m;
+  var prev = [], cur = [], i, j;
+  for (j = 0; j <= n; j++) prev[j] = j;
+  for (i = 1; i <= m; i++) {
+    cur = [i];
+    for (j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[n];
+}
+function bandaWordMatch(qw, words) {
+  // pontos / eleje egyezik / kis elírás
+  for (var i = 0; i < words.length; i++) {
+    var w = words[i];
+    if (w === qw) return 1;
+    if (qw.length >= 3 && w.indexOf(qw) === 0) return 0.9;
+    if (qw.length >= 4 && w.length >= 4) {
+      var d = bandaLev(qw, w), tol = qw.length >= 7 ? 2 : 1;
+      if (d <= tol) return 0.75;
+    }
+  }
+  return 0;
+}
+/** list: [{name, text}] → a legjobb találatok nevei */
+function bandaSearch(list, q, max) {
+  var nq = bandaNorm(q); if (!nq) return [];
+  var qws = nq.split(' ').filter(function (w) { return w.length >= 2 || /\d/.test(w); });
+  if (!qws.length) qws = [nq];
+  var scored = [];
+  list.forEach(function (it, idx) {
+    var title = bandaNorm(String(it.name || '').split(' – ')[0]);
+    var tws = title.split(' ');
+    var score = 0;
+    if (title === nq) score = 200;
+    else if (title.indexOf(nq) === 0) score = 150;
+    else if ((' ' + title + ' ').indexOf(' ' + nq + ' ') >= 0 || (nq.length >= 5 && title.indexOf(nq) >= 0)) score = 120;
+    else {
+      var sum = 0; qws.forEach(function (w) { sum += bandaWordMatch(w, tws); });
+      var ratio = sum / qws.length;
+      if (ratio >= 0.5) score = Math.round(100 * ratio);
+    }
+    if (score < 60 && it.text && nq.length >= 6) {          // szövegrészlet alapján
+      var body = bandaNorm(it.text);
+      if (body.indexOf(nq) >= 0) score = Math.max(score, 70);
+      else if (qws.length >= 3) {
+        var bws = body.split(' '), s2 = 0;
+        qws.forEach(function (w) { if (bws.indexOf(w) >= 0) s2++; });
+        if (s2 / qws.length >= 0.8) score = Math.max(score, 55);
+      }
+    }
+    if (score > 0) scored.push({ name: it.name, score: score, idx: idx });
+  });
+  scored.sort(function (a, b) { return b.score - a.score || String(a.name).localeCompare(String(b.name)); });
+  return scored.slice(0, max || 8);
+}
+
 class Hub {
   constructor(sendFn){ this.send = sendFn; this.members = {}; this.admin = null; this.doc = null; this.scroll = 0; this.key = ''; this.seq = 0; this.keep = false; }
+  // Windowson a main.js szolgálja ki a /api/now címet: neki szólunk az aktuális dalról
+  publishNow(){
+    try {
+      const d = this.doc || {};
+      if (window.bandaDesktop && window.bandaDesktop.setNow)
+        window.bandaDesktop.setNow({ seq: this.seq || 0, name: d.name || '', text: d.text || '', keep: !!this.keep, key: this.key || '' });
+    } catch(e){}
+  }
   list(){ return Object.keys(this.members).map(id => ({ id, name: this.members[id] })); }
   broadcast(msg, except){ const s = JSON.stringify(msg); Object.keys(this.members).forEach(id => { if (id !== except) this.send(id, s); }); }
   sendMembers(){ this.broadcast({ t: 'members', list: this.list(), admin: this.admin }); }
@@ -2824,6 +2906,16 @@ class Hub {
       case 'ping':
         this.send(id, JSON.stringify({ t: 'pong', name: this.hostName || 'Banda' }));
         break;
+      case 'find': {   // keresés a dalok között (pl. az óráról, hangalapon)
+        const list = (typeof files !== 'undefined' ? files : []).map(f => ({ name: f.name, text: f.text }));
+        const q = String(m.q || '').slice(0, 200);
+        this.send(id, JSON.stringify({ t: 'found', q, items: bandaSearch(list, q, 8).map(r => r.name) }));
+        break;
+      }
+      case 'pick':     // a kiválasztott dal megnyitása mindenkinél
+        if (!(id in this.members)) return;
+        if (typeof hostPick === 'function') setTimeout(() => hostPick(String(m.name || '')), 0);
+        break;
       case 'claim':
         if (!(id in this.members)) return;
         this.admin = id; this.sendMembers();
@@ -2832,7 +2924,7 @@ class Hub {
         if (id !== this.admin || !m.doc) return;
         this.doc = { id: m.doc.id || null, name: String(m.doc.name || ''), text: String(m.doc.text || '') };
         if (!m.keep) this.scroll = 0;
-        this.seq++; this.keep = !!m.keep;
+        this.seq++; this.keep = !!m.keep; this.publishNow();
         this.broadcast({ t: 'open', doc: this.doc, keep: !!m.keep }, id);
         break;
       case 'scroll':
@@ -2843,7 +2935,7 @@ class Hub {
       // hangnem és üzenet: bárki küldheti, mindenki más megkapja a küldő nevével
       case 'key':
         if (!(id in this.members)) return;
-        this.key = String(m.key || '').slice(0, 8);
+        this.key = String(m.key || '').slice(0, 8); this.publishNow();
         this.broadcast({ t: 'key', key: this.key, from: this.members[id] }, id);
         break;
       case 'msg':
@@ -2915,8 +3007,15 @@ const discovery = {
       ws.onerror = () => fin(null);
     });
   },
+  // hálózatváltás után: a régi hálózat találatai és az mDNS-figyelés eldobva, azonnal új keresés
+  restart(){
+    if (!this.active) return;
+    this.gen = (this.gen || 0) + 1; this.scanning = false;
+    this.stop(); this.start();
+  },
   async scan(){
     if (this.scanning) return; this.scanning = true; this.render();
+    const gen = this.gen || 0;
     try {
       const mine = await this.myIps();
       const order = [];
@@ -2924,13 +3023,14 @@ const discovery = {
       mine.forEach(ip => { const b = ip.split('.').slice(0, 3).join('.'); if (!order.includes(b + '.1')) order.push(b + '.1'); });
       const last = store.get('lastIp', ''); if (last && !order.includes(last)) order.unshift(last);
       mine.forEach(ip => { const b = ip.split('.').slice(0, 3).join('.'); for (let i = 2; i < 255; i++){ const a = b + '.' + i; if (!order.includes(a) && !mine.includes(a)) order.push(a); } });
-      for (let i = 0; i < order.length && this.active; i += 32){
+      for (let i = 0; i < order.length && this.active && gen === (this.gen || 0); i += 32){
         const res = await Promise.all(order.slice(i, i + 32).map(ip => this.probe(ip, 1500)));
         let any = false;
         res.forEach(h => { if (h){ this.found[h.key] = h; any = true; } });
-        if (any) this.changed();
+        if (any && gen === (this.gen || 0)) this.changed();
       }
     } catch(e){}
+    if (gen !== (this.gen || 0)) return;   // közben hálózatváltás volt, az új keresés fut
     this.scanning = false; this.render();
   },
 
@@ -3232,8 +3332,22 @@ async function archiveDoc(doc){
 }
 
 let wakeLock = null, wantAwake = false;
+// Android: háttérszolgáltatás, hogy lezárt telefonnál se szakadjon meg a kapcsolat
+let keepAliveOn = false;
+function nativeKeepAlive(on){
+  const ka = IN_APP && window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.KeepAlive;
+  if (!ka || on === keepAliveOn) return;
+  keepAliveOn = on;
+  try {
+    if (on){
+      ka.start({ text: net.mode === 'host' ? 'Banda szerver fut' : 'Kapcsolat a bandával' }).catch(() => {});
+      if (!store.get('askedBattery', false)){ store.set('askedBattery', true); ka.askBattery().catch(() => {}); }
+    } else ka.stop().catch(() => {});
+  } catch(e){}
+}
 function keepAwake(on){
   wantAwake = on;
+  nativeKeepAlive(on);
   try { const ins = window.plugins && window.plugins.insomnia; if (ins){ on ? ins.keepAwake() : ins.allowSleepAgain(); return; } } catch(e){}
   // böngészőben, ha a böngésző engedi
   try {
@@ -3246,7 +3360,28 @@ document.addEventListener('visibilitychange', () => {
   if (wantAwake) keepAwake(true);
   // telefon lezárás után azonnal újracsatlakozik
   if (net.mode === 'join' && !net.connected) net.connect(net.ip, false);
+  if (discovery.active && !discovery.scanning) discovery.scan();
 });
+// Hálózatváltás (Androidon a MainActivity szól, máshol az 'online' esemény):
+// újrakeresés, és ha csatlakozni akarunk, azonnali újracsatlakozás az új hálózaton.
+let netChangeTimer = null;
+window.bandaNetChanged = () => {
+  clearTimeout(netChangeTimer);
+  // a wifi-váltáskor több jelzés is jöhet egymás után, és a címet is meg kell kapnia
+  netChangeTimer = setTimeout(() => {
+    discovery.restart();
+    if (net.mode === 'join'){
+      if (net.connected){
+        // a régi hálózaton nyitott kapcsolat halott lehet: újranyitjuk
+        const old = net.ws; net.ws = null; net.connected = false; net.myId = null;
+        if (old){ old.onclose = null; try { old.close(); } catch(e){} }
+        updateUi();
+      }
+      net.connect(net.ip, false);
+    }
+  }, 1500);
+};
+window.addEventListener('online', () => window.bandaNetChanged());
 function myName(){ return ($('myName').value.trim() || store.get('name', '') || 'Tag'); }
 
 /* ---------- kapcsolat ablak ---------- */

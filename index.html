@@ -4204,6 +4204,74 @@ var qrcode = function() {
         }
         function plugins() { return (window.cordova && cordova.plugins) || {}; }
 
+/* Banda kereső: dalcím vagy szövegrészlet alapján, magyar + szerb (cirill/latin), hibatűrő */
+function bandaNorm(s) {
+  var CYR = { 'а':'a','б':'b','в':'v','г':'g','д':'d','ђ':'dj','е':'e','ж':'z','з':'z','и':'i','ј':'j','к':'k','л':'l','љ':'lj',
+    'м':'m','н':'n','њ':'nj','о':'o','п':'p','р':'r','с':'s','т':'t','ћ':'c','у':'u','ф':'f','х':'h','ц':'c','ч':'c','џ':'dz','ш':'s' };
+  s = String(s || '').toLowerCase();
+  var out = '';
+  for (var i = 0; i < s.length; i++) { var ch = s[i]; out += CYR.hasOwnProperty(ch) ? CYR[ch] : ch; }
+  out = out.replace(/đ/g, 'dj').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return out.replace(/[^a-z0-9]+/g, ' ').trim();
+}
+function bandaLev(a, b) {
+  if (a === b) return 0;
+  var m = a.length, n = b.length; if (!m) return n; if (!n) return m;
+  var prev = [], cur = [], i, j;
+  for (j = 0; j <= n; j++) prev[j] = j;
+  for (i = 1; i <= m; i++) {
+    cur = [i];
+    for (j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[n];
+}
+function bandaWordMatch(qw, words) {
+  // pontos / eleje egyezik / kis elírás
+  for (var i = 0; i < words.length; i++) {
+    var w = words[i];
+    if (w === qw) return 1;
+    if (qw.length >= 3 && w.indexOf(qw) === 0) return 0.9;
+    if (qw.length >= 4 && w.length >= 4) {
+      var d = bandaLev(qw, w), tol = qw.length >= 7 ? 2 : 1;
+      if (d <= tol) return 0.75;
+    }
+  }
+  return 0;
+}
+/** list: [{name, text}] → a legjobb találatok nevei */
+function bandaSearch(list, q, max) {
+  var nq = bandaNorm(q); if (!nq) return [];
+  var qws = nq.split(' ').filter(function (w) { return w.length >= 2 || /\d/.test(w); });
+  if (!qws.length) qws = [nq];
+  var scored = [];
+  list.forEach(function (it, idx) {
+    var title = bandaNorm(String(it.name || '').split(' – ')[0]);
+    var tws = title.split(' ');
+    var score = 0;
+    if (title === nq) score = 200;
+    else if (title.indexOf(nq) === 0) score = 150;
+    else if ((' ' + title + ' ').indexOf(' ' + nq + ' ') >= 0 || (nq.length >= 5 && title.indexOf(nq) >= 0)) score = 120;
+    else {
+      var sum = 0; qws.forEach(function (w) { sum += bandaWordMatch(w, tws); });
+      var ratio = sum / qws.length;
+      if (ratio >= 0.5) score = Math.round(100 * ratio);
+    }
+    if (score < 60 && it.text && nq.length >= 6) {          // szövegrészlet alapján
+      var body = bandaNorm(it.text);
+      if (body.indexOf(nq) >= 0) score = Math.max(score, 70);
+      else if (qws.length >= 3) {
+        var bws = body.split(' '), s2 = 0;
+        qws.forEach(function (w) { if (bws.indexOf(w) >= 0) s2++; });
+        if (s2 / qws.length >= 0.8) score = Math.max(score, 55);
+      }
+    }
+    if (score > 0) scored.push({ name: it.name, score: score, idx: idx });
+  });
+  scored.sort(function (a, b) { return b.score - a.score || String(a.name).localeCompare(String(b.name)); });
+  return scored.slice(0, max || 8);
+}
+
         /* ---- a szerver logikája (ugyanaz, mint a Banda Szöveg appban) ---- */
         function Hub(sendFn) { this.send = sendFn; this.members = {}; this.admin = null; this.doc = null; this.scroll = 0; this.seq = 0; this.keep = false; this.key = ''; }
         Hub.prototype.list = function () { var m = this.members; return Object.keys(m).map(function (id) { return { id: id, name: m[id] }; }); };
@@ -4220,6 +4288,22 @@ var qrcode = function() {
                     this.sendMembers(); break;
                 case 'ping':
                     this.send(id, JSON.stringify({ t: 'pong', name: this.hostName || 'Genos' })); break;
+                case 'find': {   // keresés a Songbook dalai között (pl. az óráról, hangalapon)
+                    var list = songbookSongs.map(function (sg) { return { name: songName(sg), text: sg.lyrics || '' }; });
+                    var q = String(m.q || '').slice(0, 200);
+                    this.send(id, JSON.stringify({ t: 'found', q: q, items: bandaSearch(list, q, 8).map(function (r) { return r.name; }) }));
+                    break;
+                }
+                case 'pick': {   // a kiválasztott dal megnyitása a Songbookban (regisztrációval) és mindenkinél
+                    if (!(id in this.members)) return;
+                    var nm = String(m.name || '');
+                    setTimeout(function () {
+                        for (var i = 0; i < songbookSongs.length; i++) {
+                            if (songName(songbookSongs[i]) === nm) { try { L.askNo(); } catch (e) {} loadAndTriggerSong(i); toast('Megnyitva (kérésre): ' + nm); break; }
+                        }
+                    }, 0);
+                    break;
+                }
                 case 'claim':
                     if (!(id in this.members)) return; this.admin = id; this.sendMembers(); break;
                 case 'open':
@@ -4587,6 +4671,164 @@ var qrcode = function() {
     </script>
     <!-- ==================== BANDA KAPCSOLAT VÉGE ==================== -->
 
+    <!-- ==================== WIFI MIDI (Genos, RTP-MIDI) ==================== -->
+    <style>
+        #wifiMidiBox { border: 1px solid #3498db; border-radius: 8px; padding: 10px; margin: 10px 0; }
+        #wifiMidiBox h4 { margin: 0 0 6px; color: #3498db; }
+        #wmStatus { font-weight: bold; margin: 4px 0 8px; font-size: 0.9rem; }
+        #wmStatus.ok { color: #2ecc71; } #wmStatus.warn { color: #f1c40f; } #wmStatus.err { color: #e74c3c; }
+        #wmList button { display: block; width: 100%; text-align: left; margin: 4px 0; }
+        #wmList .wm-other { color: #aaa; font-size: 0.8rem; padding: 4px 2px; }
+        #wifiMidiBox .wm-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
+        #wifiMidiBox input[type=text] { flex: 1; min-width: 120px; padding: 8px; border-radius: 6px; border: 1px solid #444; background: #2a2a32; color: #fff; }
+    </style>
+    <script>
+    (function () {
+        'use strict';
+        function $(id) { return document.getElementById(id); }
+        function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+        function lsGet(k, d) { try { var v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } }
+        function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+        function plugin() { try { return (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.NetMidi) || null; } catch (e) { return null; } }
+
+        var W = {
+            state: 'off', info: '', host: '', port: 5004, services: {}, others: {}, searching: false,
+            connected: function () { return this.state === 'connected'; },
+
+            init: function () {
+                var p = plugin(); if (!p) return;
+                var self = this;
+                p.addListener('state', function (o) {
+                    if (o.state === 'discover-error') { self.searching = false; self.render(); return; }
+                    self.state = o.state; self.info = o.info || '';
+                    if (o.state === 'connected') { try { showToast('📶 WiFi MIDI: kapcsolódva a Genoshoz'); } catch (e) {} }
+                    if (o.state === 'error') { try { showToast('WiFi MIDI hiba: ' + self.info); } catch (e) {} }
+                    try { updateMidiIndicator(); } catch (e) {}
+                    self.render();
+                    if ((o.state === 'error' || o.state === 'closed') && self.autoRetry) self.retryLater();
+                });
+                p.addListener('midi', function (o) {
+                    var d = new Uint8Array(o.data || []);
+                    if (d.length) try { handleMidiInputMessage({ data: d }); } catch (e) {}
+                });
+                p.addListener('service', function (s) {
+                    var key = s.name + '@' + s.host + ':' + s.port;
+                    if (/apple-midi/.test(s.type)) self.services[key] = s; else self.others[key] = s;
+                    self.render();
+                });
+                this.host = lsGet('wmHost', ''); this.port = lsGet('wmPort', 5004);
+                if (lsGet('wmAuto', false) && this.host) { this.autoRetry = true; this.connect(this.host, this.port); }
+            },
+            discover: function () {
+                var p = plugin(); if (!p) { try { showToast('A WiFi MIDI csak a telepített appban működik'); } catch (e) {} return; }
+                this.services = {}; this.others = {}; this.searching = true; this.render();
+                var self = this;
+                p.discover().catch(function () {});
+                setTimeout(function () { self.searching = false; self.render(); }, 8000);
+            },
+            connect: function (host, port) {
+                var p = plugin(); if (!p) return;
+                host = String(host || '').trim(); port = parseInt(port, 10) || 5004;
+                if (!/^[\d.]+$/.test(host)) { try { showToast('Írd be a Genos IP-címét'); } catch (e) {} return; }
+                this.host = host; this.port = port; lsSet('wmHost', host); lsSet('wmPort', port);
+                this.state = 'connecting'; this.render();
+                p.connect({ host: host, port: port, name: 'Genos Songbook' }).catch(function () {});
+            },
+            disconnect: function () {
+                this.autoRetry = false;
+                var p = plugin(); if (p) p.disconnect().catch(function () {});
+                this.state = 'off'; this.render();
+                try { updateMidiIndicator(); } catch (e) {}
+            },
+            retryTimer: null,
+            retryLater: function () {
+                var self = this; clearTimeout(this.retryTimer);
+                this.retryTimer = setTimeout(function () { if (self.autoRetry && !self.connected() && self.host) self.connect(self.host, self.port); }, 5000);
+            },
+            send: function (bytes) {
+                var p = plugin(); if (!p || !this.connected()) return false;
+                p.send({ data: Array.prototype.slice.call(bytes) }).catch(function () {});
+                return true;
+            },
+
+            render: function () {
+                var box = $('wifiMidiBox'); if (!box) return;
+                var st = $('wmStatus'), lvl = 'warn', txt = 'Nincs WiFi MIDI kapcsolat';
+                if (!plugin()) { lvl = 'err'; txt = 'A WiFi MIDI csak a telepített appban működik'; }
+                else if (this.state === 'connected') { lvl = 'ok'; txt = '✔ Kapcsolódva: ' + this.info; }
+                else if (this.state === 'connecting') txt = 'Kapcsolódás: ' + this.info + '…';
+                else if (this.state === 'error') { lvl = 'err'; txt = '✖ ' + this.info; }
+                st.className = lvl; st.textContent = txt;
+                var self = this, list = Object.keys(this.services).map(function (k) { return self.services[k]; });
+                var others = Object.keys(this.others).map(function (k) { return self.others[k]; });
+                var html = list.map(function (s) {
+                    return '<button class="btn" style="background:#2a2a32;color:#fff" data-h="' + esc(s.host) + '" data-p="' + s.port + '">🎹 ' + esc(s.name) + ' <small style="opacity:.6">' + esc(s.host + ':' + s.port) + '</small></button>';
+                }).join('');
+                if (others.length) html += '<div class="wm-other">Más hálózati MIDI (MIDI 2.0, még nem támogatott): ' + others.map(function (s) { return esc(s.name + ' ' + s.host + ':' + s.port); }).join(', ') + '</div>';
+                if (!list.length && !others.length) html = '<div class="wm-other">' + (this.searching ? 'Keresés a hálózaton…' : 'Nyomd meg a Keresés gombot. A Genos legyen ugyanazon a WiFi-n, mint a tablet.') + '</div>';
+                else if (!list.length && !this.searching) html += '<div class="wm-other">Hálózati MIDI-eszköz (RTP-MIDI) nem jelentkezett. Próbáld kézzel a Genos IP-címével.</div>';
+                $('wmList').innerHTML = html;
+                $('wmConnect').style.display = this.connected() ? 'none' : '';
+                $('wmDisconnect').style.display = (this.connected() || this.state === 'connecting') ? '' : 'none';
+                $('wmIp').value = $('wmIp').value || this.host;
+                $('wmPort').value = $('wmPort').value || this.port;
+            }
+        };
+        window.wifiMidi = W;
+
+        /* ---- UI a MIDI állapot ablakban ---- */
+        var anchor = document.querySelector('#midiModal .modal-content .form-group');
+        if (anchor) {
+            var box = document.createElement('div');
+            box.id = 'wifiMidiBox';
+            box.innerHTML =
+                '<h4>📶 WiFi MIDI (Genos)</h4>' +
+                '<div id="wmStatus"></div>' +
+                '<div class="wm-row"><button class="btn" style="background:#3498db;color:#fff" id="wmFind">🔎 Keresés</button></div>' +
+                '<div id="wmList"></div>' +
+                '<div class="wm-row"><input type="text" id="wmIp" inputmode="decimal" placeholder="Genos IP-címe, pl. 192.168.0.50">' +
+                '<input type="text" id="wmPort" inputmode="numeric" style="max-width:80px;flex:none" placeholder="5004"></div>' +
+                '<div class="wm-row"><button class="btn btn-save" id="wmConnect">Kapcsolódás</button>' +
+                '<button class="btn" style="background:#444;color:#fff" id="wmDisconnect">Leválasztás</button>' +
+                '<label style="display:flex;gap:6px;align-items:center;font-size:0.85rem"><input type="checkbox" id="wmAuto"> Indításkor kapcsolódjon</label></div>';
+            anchor.parentNode.insertBefore(box, anchor);
+            $('wmFind').onclick = function () { W.discover(); };
+            $('wmConnect').onclick = function () { W.autoRetry = $('wmAuto').checked; W.connect($('wmIp').value, $('wmPort').value); };
+            $('wmDisconnect').onclick = function () { W.disconnect(); };
+            $('wmList').onclick = function (e) {
+                var b = e.target.closest('[data-h]'); if (!b) return;
+                $('wmIp').value = b.getAttribute('data-h'); $('wmPort').value = b.getAttribute('data-p');
+                W.autoRetry = $('wmAuto').checked; W.connect(b.getAttribute('data-h'), b.getAttribute('data-p'));
+            };
+            $('wmAuto').checked = lsGet('wmAuto', false);
+            $('wmAuto').onchange = function () { lsSet('wmAuto', this.checked); W.autoRetry = this.checked; };
+            ['wmIp', 'wmPort'].forEach(function (id) { $(id).addEventListener('keydown', function (e) { e.stopPropagation(); }); });
+        }
+
+        /* ---- bekötés a meglévő MIDI kezelésbe ---- */
+        var _send = window.sendMidiMessage;
+        window.sendMidiMessage = function (bytes) {
+            if (bytes && W.connected()) {               // WiFi kapcsolat esetén oda megy (USB helyett)
+                var ok = W.send(bytes);
+                try { logMidi('📶→', bytes); } catch (e) {}
+                return ok;
+            }
+            return _send.apply(this, arguments);
+        };
+        var _info = window.midiStateInfo;
+        window.midiStateInfo = function () {
+            if (W.connected()) return { level: 'ok', text: '📶 WiFi MIDI: ' + W.info + ' · SysEx be' };
+            return _info.apply(this, arguments);
+        };
+        var _render = window.renderMidiModal;
+        window.renderMidiModal = function () { var r = _render.apply(this, arguments); try { W.render(); } catch (e) {} return r; };
+
+        function start() { W.init(); W.render(); try { updateMidiIndicator(); } catch (e) {} }
+        if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) setTimeout(start, 300);
+        else start();
+    })();
+    </script>
+    <!-- ==================== WIFI MIDI VÉGE ==================== -->
 </body>
 </html>
 <!-- ==================== EMBERI JELZÉS: ITT VAN A LEZÁRT 9/C. RÉSZ (KÓD VÉGE) ==================== -->

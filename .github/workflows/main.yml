@@ -25,7 +25,7 @@ jobs:
         run: |
           PKG=android/app/src/main/java/hu/petya/genossongbook
           mkdir -p $PKG
-          cp MainActivity.java SongFolderPlugin.java $PKG/
+          cp MainActivity.java SongFolderPlugin.java NetMidiPlugin.java RtpMidiSession.java $PKG/
           python3 - <<'PY'
           p='android/app/src/main/AndroidManifest.xml'
           s=open(p,encoding='utf-8').read()
@@ -33,6 +33,9 @@ jobs:
               <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
               <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
               <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+              <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+              <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
               <uses-feature android:name="android.hardware.usb.host" android:required="false" />
               <uses-feature android:name="android.software.midi" android:required="false" />
           '''
