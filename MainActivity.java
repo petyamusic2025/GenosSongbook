@@ -11,6 +11,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(SongFolderPlugin.class);
+        registerPlugin(NetMidiPlugin.class);
         super.onCreate(savedInstanceState);
         WebView wv = getBridge().getWebView();
         // Web MIDI (inkl. SysEx) erlauben
